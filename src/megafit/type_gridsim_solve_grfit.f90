@@ -122,7 +122,7 @@ subroutine solve_gridfit(gs,map,mw,mem,verbosity)
             ! Now fit and subtract the second order
             if ( map%have_fc_pair ) then
                 ! constraints
-                call lo_secondorder_rot_herm_huang(map,uc,wC,nc,.true.,.true.,.true.)
+                call megafit_secondorder_constraints(map,uc,wC,nc,.true.,.true.,.true.)
                 nu=map%xuc%nx_fc_pair
                 ! first get the coefficient matrix
                 lo_allocate(wA(nt,nu))

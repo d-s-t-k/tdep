@@ -15,7 +15,7 @@ use type_forceconstant_fourthorder, only: lo_forceconstant_fourthorder
 use lo_dielectric_interaction, only: lo_dielectric_tensor
 !use type_jij_secondorder, only: lo_jij_secondorder
 use lo_symmetry_of_interactions, only: lo_interaction_tensors
-use type_forcemap, only: lo_forcemap,lo_secondorder_rot_herm_huang
+use type_forcemap, only: lo_forcemap
 use hdf5_wrappers, only: lo_h5_read_data,HID_T,H5F_ACC_TRUNC_F,H5f_ACC_RDONLY_F,&
                          h5close_f,h5open_f,h5fclose_f,h5fopen_f,h5fcreate_f,h5gclose_f,h5gopen_f,h5gcreate_f
 
@@ -23,6 +23,7 @@ use options, only: lo_opts
 use type_gridsim, only: lo_gridsim
 use gridenergy, only: lo_gridenergy
 use diagnostics, only: get_diagnostics
+use helperobjects, only: megafit_secondorder_constraints
 
 implicit none
 type(lo_opts) :: opts
@@ -72,9 +73,20 @@ init: block
     ! And create the map
     call map%generate(uc,ss,polarcorrectiontype=opts%polarcorrectiontype,st=slt,mw=mw,mem=mem,verbosity=opts%verbosity)
 
-    ! Create the constraints
+    ! Create the constraints (with zero RHS arrays for homogeneous constraints)
     t0=walltime()
-    call map%forceconstant_constraints(uc,opts%rotationalconstraints,opts%huanginvariance,opts%hermitian,opts%verbosity+10)
+    constblock: block
+        real(r8), dimension(:), allocatable :: hermitian_rhs, huang_rhs, rotational_rhs
+        allocate(hermitian_rhs(uc%na * 9))
+        allocate(huang_rhs(81))
+        allocate(rotational_rhs(uc%na * 27))
+        hermitian_rhs = 0.0_r8
+        huang_rhs = 0.0_r8
+        rotational_rhs = 0.0_r8
+        call map%forceconstant_constraints(uc,opts%rotationalconstraints,opts%huanginvariance,opts%hermitian,&
+                                           hermitian_rhs,huang_rhs,rotational_rhs,opts%verbosity+10)
+        deallocate(hermitian_rhs, huang_rhs, rotational_rhs)
+    end block constblock
 
     call tmr%tock('determined symmetry')
 
@@ -203,7 +215,7 @@ integer :: j,k,u
         call p%classify('bravais')
         call p%writetofile('ongrid_uc_'//tochar(i),1)
         ! forceconstants, first the constraints
-        call lo_secondorder_rot_herm_huang( map,p,pairconstraints,nconstr,.true.,.true.,.true. )
+        call megafit_secondorder_constraints( map,p,pairconstraints,nconstr,.true.,.true.,.true. )
         if ( nconstr .gt. 0 ) then
             call gs%eval(map,gs%grid_coordinates(:,i),pairconstraints)
         else
@@ -293,7 +305,7 @@ dumppts: block
         call p%classify('bravais')
         call p%writetofile('uc_'//tochar(i),1)
         ! forceconstants, first the constraints
-        call lo_secondorder_rot_herm_huang( map,p,pairconstraints,nconstr,.true.,.true.,.true. )
+        call megafit_secondorder_constraints( map,p,pairconstraints,nconstr,.true.,.true.,.true. )
         if ( nconstr .gt. 0 ) then
             call gs%eval(map,gridcoord(:,i),pairconstraints)
         else

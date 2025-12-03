@@ -12,10 +12,11 @@ use type_forceconstant_secondorder, only: lo_forceconstant_secondorder
 use type_forceconstant_thirdorder, only: lo_forceconstant_thirdorder
 use type_forceconstant_fourthorder, only: lo_forceconstant_fourthorder
 use lo_dielectric_interaction, only: lo_dielectric_tensor
-use type_forcemap, only: lo_forcemap,lo_secondorder_rot_herm_huang
+use type_forcemap, only: lo_forcemap
 use type_mdsim, only: lo_mdsim
 use type_gridsim, only: lo_gridsim
 use type_polynomial_interpolation, only: lo_grid_interpolation
+use helperobjects, only: megafit_secondorder_constraints
 
 implicit none
 
@@ -229,7 +230,7 @@ subroutine get_diagnostics(gs,map,mw,mem,verbosity)
             !@TODO think about what happens with reference positions. Later problem for now.
 
             ! forceconstants, first the constraints
-            call lo_secondorder_rot_herm_huang( map,uc,pairconstraints,nconstr,.true.,.true.,.true. )
+            call megafit_secondorder_constraints( map,uc,pairconstraints,nconstr,.true.,.true.,.true. )
             if ( nconstr .gt. 0 ) then
                 call gs%eval(map,gs%grid_coordinates(:,isim),pairconstraints)
             else

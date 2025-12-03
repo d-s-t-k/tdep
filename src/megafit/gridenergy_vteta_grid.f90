@@ -367,7 +367,7 @@ subroutine VTetafinalize( gr,gs,map,filename,qgrid,quasiharmonic,pressurestep,mw
             gridcoord( gs%info%dim_eta ) = eos(t)%eta0
             ! get a structure and a forceconstant
             call gs%structure%interpolate(gridcoord,p,gs%info%dim_volume)
-            call lo_secondorder_rot_herm_huang( map,p,pairconstraints,nconstr,.true.,.true.,.true. )
+            call megafit_secondorder_constraints( map,p,pairconstraints,nconstr,.true.,.true.,.true. )
             if ( nconstr .gt. 0 ) then
                 call gs%eval(map,gridcoord,pairconstraints)
             else

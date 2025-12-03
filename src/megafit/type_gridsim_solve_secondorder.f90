@@ -38,7 +38,7 @@ subroutine subtract_secondorder_forces(gs,map,mw,mem,verbosity)
             call uc%generate( gs%ref(ii)%unitcell_latticevectors,gs%ref(ii)%unitcell_positions,gs%ref(ii)%unitcell_atomic_numbers,enhet=2 )
             call ss%generate( gs%ref(ii)%supercell_latticevectors,gs%ref(ii)%supercell_positions,gs%ref(ii)%supercell_atomic_numbers,enhet=2 )
             call ss%classify( 'supercell',uc )
-            call lo_secondorder_rot_herm_huang( map,uc,constraints,nconstr,.true.,.true.,.true. )
+            call megafit_secondorder_constraints( map,uc,constraints,nconstr,.true.,.true.,.true. )
             if ( nconstr .gt. 0 ) then
                 call gs%eval( map,gs%grid_coordinates(:,ii),constraints )
             else
@@ -162,7 +162,7 @@ subroutine solve_secondorder_gridfit(gs,map,mw,mem,verbosity)
             ! get structure and constraints
             call uc%generate( sim%extra%unitcell_latticevectors, sim%extra%unitcell_positions, sim%extra%unitcell_atomic_numbers, 2 )
             ! fake forceconstant thingy
-            call lo_secondorder_rot_herm_huang(map,uc,wC,nc,.true.,.true.,.true.)
+            call megafit_secondorder_constraints(map,uc,wC,nc,.true.,.true.,.true.)
 
             if ( map%polar .gt. 0 ) then
                 ! subtract the polar stuff here instead. Can't figure out how to not do it twice.
@@ -317,7 +317,7 @@ subroutine solve_secondorder(gs,map,mw,verbosity)
             ! Generate structures for this point
             call uc%generate( gs%ref(ii)%unitcell_latticevectors, gs%ref(ii)%unitcell_positions, gs%ref(ii)%unitcell_atomic_numbers ,enhet=1 )
             ! Grab the constraints at this point
-            call lo_secondorder_rot_herm_huang(map,uc,A,jj,.true.,.true.,.true.)
+            call megafit_secondorder_constraints(map,uc,A,jj,.true.,.true.,.true.)
             jj=0
             ! Store these away, temporarily
             if ( jj .gt. 0 ) then

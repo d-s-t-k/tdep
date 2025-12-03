@@ -22,7 +22,7 @@ use type_blas_lapack_wrappers, only: lo_gemm,lo_dgels,lo_dgglse,lo_dgesvd,lo_dge
 use type_equation_of_state, only: lo_eos,lo_eos_1d,lo_eos_2d,lo_eos_birch_murnaghan,lo_eos_vinet,lo_eos_2d_birch_murnaghan
 use type_polynomial_interpolation, only: lo_polynomial,lo_grid_interpolation
 use ifc_solvers, only: lo_solve_for_borncharges
-use helperobjects, only: lo_sparsematrix,reduce_equations
+use helperobjects, only: lo_sparsematrix,reduce_equations,megafit_secondorder_constraints
 implicit none
 
 private

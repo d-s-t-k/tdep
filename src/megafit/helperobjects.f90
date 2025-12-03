@@ -3,11 +3,14 @@ module helperobjects
 use konstanter, only: r8,lo_hugeint,lo_sqtol
 use gottochblandat, only: lo_chop
 use type_blas_lapack_wrappers, only: lo_dgesvd
+use type_crystalstructure, only: lo_crystalstructure
+use type_forcemap, only: lo_forcemap, lo_secondorder_rot_herm_huang
 implicit none
 
 private
 public :: lo_sparsematrix
 public :: reduce_equations
+public :: megafit_secondorder_constraints
 
 !> special case of sparse matrix
 type lo_sparsematrix
@@ -98,6 +101,41 @@ subroutine reduce_equations(allequations,redeq,nredeq)
     endif
     ! cleanup
     deallocate(m,s,u,v)
+end subroutine
+
+!> Wrapper for lo_secondorder_rot_herm_huang with homogeneous RHS (zeros)
+!> This provides the old API for megafit code compatibility
+subroutine megafit_secondorder_constraints(map, uc, eq2, neq2, rotational, huang, hermitian)
+    !> forcemap
+    class(lo_forcemap), intent(in) :: map
+    !> unitcell
+    type(lo_crystalstructure), intent(in) :: uc
+    !> constraints matrix (output)
+    real(r8), dimension(:,:), allocatable, intent(out) :: eq2
+    !> number of equations (output)
+    integer, intent(out) :: neq2
+    !> which constraints to apply
+    logical, intent(in) :: rotational, huang, hermitian
+
+    real(r8), dimension(:), allocatable :: vD
+    real(r8), dimension(:), allocatable :: hermitian_rhs, huang_rhs, rotational_rhs
+
+    ! Allocate zero RHS arrays with proper sizes
+    allocate(hermitian_rhs(uc%na * 9))
+    allocate(huang_rhs(81))
+    allocate(rotational_rhs(uc%na * 27))
+    hermitian_rhs = 0.0_r8
+    huang_rhs = 0.0_r8
+    rotational_rhs = 0.0_r8
+
+    ! Call the actual subroutine with zero RHS
+    call lo_secondorder_rot_herm_huang(map, uc, eq2, vD, neq2, &
+                                       rotational, huang, hermitian, &
+                                       hermitian_rhs, huang_rhs, rotational_rhs)
+
+    ! Cleanup
+    deallocate(hermitian_rhs, huang_rhs, rotational_rhs)
+    if (allocated(vD)) deallocate(vD)
 end subroutine
 
 end module

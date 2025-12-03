@@ -523,7 +523,7 @@ subroutine VTfinalize( gr,gs,map,filename,qgrid,quasiharmonic,pressurestep,dumpg
                 gridcoord( gs%info%dim_volume ) = gv(ipress,itemp)
                 call gs%structure%interpolate(gridcoord,p,gs%info%dim_volume)
                 call p%classify('wedge',timereversal=.true.)
-                call lo_secondorder_rot_herm_huang( map,p,pairconstraints,nconstr,.true.,.true.,.true. )
+                call megafit_secondorder_constraints( map,p,pairconstraints,nconstr,.true.,.true.,.true. )
                 if ( nconstr .gt. 0 ) then
                     call gs%eval(map,gridcoord,pairconstraints)
                 else
@@ -562,7 +562,7 @@ subroutine VTfinalize( gr,gs,map,filename,qgrid,quasiharmonic,pressurestep,dumpg
                     gridcoord( gs%info%dim_volume ) = gv(ipress,itemp)
                     call gs%structure%interpolate(gridcoord,p,gs%info%dim_volume)
                     call p%classify('wedge',timereversal=.true.)
-                    call lo_secondorder_rot_herm_huang( map,p,pairconstraints,nconstr,.true.,.true.,.true. )
+                    call megafit_secondorder_constraints( map,p,pairconstraints,nconstr,.true.,.true.,.true. )
                     if ( nconstr .gt. 0 ) then
                         call gs%eval(map,gridcoord,pairconstraints)
                     else
@@ -637,7 +637,7 @@ subroutine VTfinalize( gr,gs,map,filename,qgrid,quasiharmonic,pressurestep,dumpg
                 gridcoord( gs%info%dim_volume ) = gv(ipress,itemp)
                 call gs%structure%interpolate(gridcoord,p,gs%info%dim_volume)
                 call p%classify('wedge',timereversal=.true.)
-                call lo_secondorder_rot_herm_huang( map,p,pairconstraints,nconstr,.true.,.true.,.true. )
+                call megafit_secondorder_constraints( map,p,pairconstraints,nconstr,.true.,.true.,.true. )
                 if ( nconstr .gt. 0 ) then
                     call gs%eval(map,gridcoord,pairconstraints)
                 else

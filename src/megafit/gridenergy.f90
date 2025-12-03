@@ -16,7 +16,7 @@ use type_forceconstant_secondorder, only: lo_forceconstant_secondorder
 use type_forceconstant_thirdorder,  only: lo_forceconstant_thirdorder
 use type_forceconstant_fourthorder, only: lo_forceconstant_fourthorder
 use type_jij_secondorder, only: lo_jij_secondorder
-use type_forcemap, only: lo_forcemap,lo_secondorder_rot_herm_huang
+use type_forcemap, only: lo_forcemap
 use type_qpointmesh, only: lo_qpoint_mesh,lo_fft_mesh,lo_generate_qmesh
 use type_phonon_dispersions, only: lo_phonon_dispersions
 use lo_phonon_bandstructure_on_path, only: lo_phonon_bandstructure
@@ -27,6 +27,7 @@ use hdf5_wrappers, only: lo_hdf5_helper,lo_h5_store_data,lo_h5_store_attribute,H
 use type_gridsim, only: lo_gridsim
 use type_equation_of_state, only: lo_eos,lo_eos_1d,lo_eos_2d,lo_eos_birch_murnaghan,lo_eos_vinet,lo_eos_2d_birch_murnaghan
 use type_polynomial_interpolation, only: lo_grid_interpolation
+use helperobjects, only: megafit_secondorder_constraints
 
 implicit none
 
@@ -897,7 +898,7 @@ subroutine evaluate_vgrid_qha(ge,gs,map,qgrid_harm,qgrid_anharm,mw,mem,verbosity
         call p%classify('wedge',timereversal=.true.)
 
         ! Get force constants at this volume
-        call lo_secondorder_rot_herm_huang( map,p,pairconstraints,nconstr,.true.,.true.,.true. )
+        call megafit_secondorder_constraints( map,p,pairconstraints,nconstr,.true.,.true.,.true. )
         if ( nconstr .gt. 0 ) then
             call gs%eval(map,depvar,pairconstraints)
         else
@@ -929,8 +930,7 @@ subroutine evaluate_vgrid_qha(ge,gs,map,qgrid_harm,qgrid_anharm,mw,mem,verbosity
         else
             ! Now evaluate phonon free energy at each temperature (this is fast - just Bose-Einstein)
             do it=1,ge%grid_V%nt
-                call phonon_free_energy_from_dos(dr,ge%grid_V%temperature(it),p%na,fph)
-                ge%grid_V%fph(iv,it) = fph
+                ge%grid_V%fph(iv,it) = dr%phonon_free_energy(ge%grid_V%temperature(it))
             enddo
             ge%grid_V%ah3(iv,:) = 0.0_flyt
             ge%grid_V%ah4(iv,:) = 0.0_flyt
@@ -949,38 +949,6 @@ subroutine evaluate_vgrid_qha(ge,gs,map,qgrid_harm,qgrid_anharm,mw,mem,verbosity
     call mpi_allreduce(MPI_IN_PLACE,ge%grid_V%fph,ge%grid_V%nv*ge%grid_V%nt,MPI_DOUBLE_PRECISION,MPI_SUM,mw%comm,mw%error)
     call mpi_allreduce(MPI_IN_PLACE,ge%grid_V%ah3,ge%grid_V%nv*ge%grid_V%nt,MPI_DOUBLE_PRECISION,MPI_SUM,mw%comm,mw%error)
     call mpi_allreduce(MPI_IN_PLACE,ge%grid_V%ah4,ge%grid_V%nv*ge%grid_V%nt,MPI_DOUBLE_PRECISION,MPI_SUM,mw%comm,mw%error)
-end subroutine
-
-!> Compute phonon free energy from dispersion at given temperature
-subroutine phonon_free_energy_from_dos(dr,temperature,na,fph)
-    !> dispersions
-    type(lo_phonon_dispersions), intent(in) :: dr
-    !> temperature
-    real(flyt), intent(in) :: temperature
-    !> number of atoms
-    integer, intent(in) :: na
-    !> phonon free energy per atom
-    real(flyt), intent(out) :: fph
-
-    real(flyt) :: omega,n_BE,f0
-    integer :: iq,ib
-
-    fph=0.0_flyt
-    do iq=1,dr%n_irr_qpoint
-        do ib=1,dr%n_mode
-            omega=dr%iq(iq)%omega(ib)
-            if ( omega .gt. lo_freqtol ) then
-                if ( temperature .gt. 1.0_flyt ) then
-                    n_BE=lo_planck(temperature,omega)
-                    f0=0.5_flyt*omega + temperature*lo_kb_Hartree*log(1.0_flyt-exp(-omega/(temperature*lo_kb_Hartree)))
-                else
-                    f0=0.5_flyt*omega  ! Zero-point energy only at T=0
-                endif
-                fph=fph + f0*dr%iq(iq)%integration_weight
-            endif
-        enddo
-    enddo
-    fph=fph/real(na,flyt)
 end subroutine
 
 !> Evaluate energies for V-T and V-T-eta grids
@@ -1246,7 +1214,7 @@ subroutine evaluate_acgrid_qha(ge,gs,map,qgrid_harm,qgrid_anharm,mw,mem,verbosit
         call p%classify('wedge',timereversal=.true.)
 
         ! Get force constants at this a,c
-        call lo_secondorder_rot_herm_huang( map,p,pairconstraints,nconstr,.true.,.true.,.true. )
+        call megafit_secondorder_constraints( map,p,pairconstraints,nconstr,.true.,.true.,.true. )
         if ( nconstr .gt. 0 ) then
             call gs%eval(map,depvar,pairconstraints)
         else
@@ -1273,8 +1241,7 @@ subroutine evaluate_acgrid_qha(ge,gs,map,qgrid_harm,qgrid_anharm,mw,mem,verbosit
         else
             ! Evaluate phonon free energy at each temperature
             do it=1,ge%grid_AC%nt
-                call phonon_free_energy_from_dos(dr,ge%grid_AC%temperature(it),p%na,fph)
-                ge%grid_AC%fph(ia,ic,it) = fph
+                ge%grid_AC%fph(ia,ic,it) = dr%phonon_free_energy(ge%grid_AC%temperature(it))
             enddo
             
             ! Evaluate anharmonic contributions if available
@@ -1535,7 +1502,7 @@ subroutine evaluate_actgrid(ge,gs,map,qgrid_harm,qgrid_anharm,mw,mem,verbosity)
         call p%classify('wedge',timereversal=.true.)
 
         ! Get force constants at this (a,c,T) - FCs are now T-dependent!
-        call lo_secondorder_rot_herm_huang( map,p,pairconstraints,nconstr,.true.,.true.,.true. )
+        call megafit_secondorder_constraints( map,p,pairconstraints,nconstr,.true.,.true.,.true. )
         if ( nconstr .gt. 0 ) then
             call gs%eval(map,depvar,pairconstraints)
         else
@@ -1560,8 +1527,7 @@ subroutine evaluate_actgrid(ge,gs,map,qgrid_harm,qgrid_anharm,mw,mem,verbosity)
             ge%grid_ACT%ah4(ia,ic,it) = 0.0_flyt
         else
             ! Evaluate phonon free energy at this temperature
-            call phonon_free_energy_from_dos(dr,temperature,p%na,fph)
-            ge%grid_ACT%fph(ia,ic,it) = fph
+            ge%grid_ACT%fph(ia,ic,it) = dr%phonon_free_energy(temperature)
             
             ! Evaluate anharmonic contributions if available
             if ( have_anharmonic ) then
@@ -1785,7 +1751,7 @@ subroutine anharmonic_free_energy_for_single_point( gs,map,depvar,qgrid,temperat
     call gs%structure%interpolate(depvar,p,gs%info%dim_volume)
     call p%classify('wedge',timereversal=.true.)
     ! forceconstants, first the constraints
-    call lo_secondorder_rot_herm_huang( map,p,pairconstraints,nconstr,.true.,.true.,.true. )
+    call megafit_secondorder_constraints( map,p,pairconstraints,nconstr,.true.,.true.,.true. )
     if ( nconstr .gt. 0 ) then
         call gs%eval(map,depvar,pairconstraints)
     else
@@ -1841,7 +1807,7 @@ subroutine phonon_free_energy_for_single_point(gs,map,depvar,qgrid,temperature,m
     call gs%structure%interpolate(depvar,p,gs%info%dim_volume)
     call p%classify('wedge',timereversal=.true.)
     ! constraints
-    call lo_secondorder_rot_herm_huang(map,p,pairconstraints,nconstr,.true.,.true.,.true.)
+    call megafit_secondorder_constraints(map,p,pairconstraints,nconstr,.true.,.true.,.true.)
     ! evaluate forceconstants
     if ( nconstr .gt. 0 ) then
         call gs%eval(map,depvar,pairconstraints)
