@@ -1,0 +1,117 @@
+HDF5-DIAG: Error detected in HDF5 (1.14.6) thread 1:
+  #000: H5A.c line 539 in H5Aopen(): unable to synchronously open attribute
+    major: Attribute
+    minor: Unable to create file
+  #001: H5A.c line 505 in H5A__open_api_common(): unable to open attribute: 'number_of_unitcell_atoms'
+    major: Attribute
+    minor: Can't open object
+  #002: H5A.c line 454 in H5A__open_common(): unable to open attribute: 'number_of_unitcell_atoms'
+    major: Attribute
+    minor: Can't open object
+  #003: H5VLcallback.c line 1125 in H5VL_attr_open(): attribute open failed
+    major: Virtual Object Layer
+    minor: Can't open object
+  #004: H5VLcallback.c line 1092 in H5VL__attr_open(): attribute open failed
+    major: Virtual Object Layer
+    minor: Can't open object
+  #005: H5VLnative_attr.c line 164 in H5VL__native_attr_open(): unable to open attribute: 'number_of_unitcell_atoms'
+    major: Attribute
+    minor: Can't open object
+  #006: H5Aint.c line 513 in H5A__open(): unable to load attribute info from object header for attribute: 'number_of_unitcell_atoms'
+    major: Attribute
+    minor: Can't open object
+  #007: H5Oattribute.c line 498 in H5O__attr_open_by_name(): can't locate attribute: 'number_of_unitcell_atoms'
+    major: Attribute
+    minor: Object not found
+HDF5-DIAG: Error detected in HDF5 (1.14.6) thread 1:
+  #000: H5A.c line 1022 in H5Aread(): can't synchronously read data
+    major: Attribute
+    minor: Read failed
+  #001: H5A.c line 987 in H5A__read_api_common(): not an attribute
+    major: Invalid arguments to routine
+    minor: Inappropriate type
+  #002: H5VLint.c line 1786 in H5VL_vol_object_verify(): identifier is not of specified type
+    major: Invalid arguments to routine
+    minor: Inappropriate type
+HDF5-DIAG: Error detected in HDF5 (1.14.6) thread 1:
+  #000: H5A.c line 2193 in H5Aclose(): not an attribute ID
+    major: Invalid arguments to routine
+    minor: Inappropriate type
+HDF5-DIAG: Error detected in HDF5 (1.14.6) thread 1:
+  #000: H5A.c line 539 in H5Aopen(): unable to synchronously open attribute
+    major: Attribute
+    minor: Unable to create file
+  #001: H5A.c line 505 in H5A__open_api_common(): unable to open attribute: 'number_of_supercell_atoms'
+    major: Attribute
+    minor: Can't open object
+  #002: H5A.c line 454 in H5A__open_common(): unable to open attribute: 'number_of_supercell_atoms'
+    major: Attribute
+    minor: Can't open object
+  #003: H5VLcallback.c line 1125 in H5VL_attr_open(): attribute open failed
+    major: Virtual Object Layer
+    minor: Can't open object
+  #004: H5VLcallback.c line 1092 in H5VL__attr_open(): attribute open failed
+    major: Virtual Object Layer
+    minor: Can't open object
+  #005: H5VLnative_attr.c line 164 in H5VL__native_attr_open(): unable to open attribute: 'number_of_supercell_atoms'
+    major: Attribute
+    minor: Can't open object
+  #006: H5Aint.c line 513 in H5A__open(): unable to load attribute info from object header for attribute: 'number_of_supercell_atoms'
+    major: Attribute
+    minor: Can't open object
+  #007: H5Oattribute.c line 498 in H5O__attr_open_by_name(): can't locate attribute: 'number_of_supercell_atoms'
+    major: Attribute
+    minor: Object not found
+HDF5-DIAG: Error detected in HDF5 (1.14.6) thread 1:
+  #000: H5A.c line 1022 in H5Aread(): can't synchronously read data
+    major: Attribute
+    minor: Read failed
+  #001: H5A.c line 987 in H5A__read_api_common(): not an attribute
+    major: Invalid arguments to routine
+    minor: Inappropriate type
+  #002: H5VLint.c line 1786 in H5VL_vol_object_verify(): identifier is not of specified type
+    major: Invalid arguments to routine
+    minor: Inappropriate type
+HDF5-DIAG: Error detected in HDF5 (1.14.6) thread 1:
+  #000: H5A.c line 2193 in H5Aclose(): not an attribute ID
+    major: Invalid arguments to routine
+    minor: Inappropriate type
+HDF5-DIAG: Error detected in HDF5 (1.14.6) thread 1:
+  #000: H5A.c line 539 in H5Aopen(): unable to synchronously open attribute
+    major: Attribute
+    minor: Unable to create file
+  #001: H5A.c line 505 in H5A__open_api_common(): unable to open attribute: 'contains_secondorder_forceconstant'
+    major: Attribute
+    minor: Can't open object
+  #002: H5A.c line 454 in H5A__open_common(): unable to open attribute: 'contains_secondorder_forceconstant'
+    major: Attribute
+    minor: Can't open object
+  #003: H5VLcallback.c line 1125 in H5VL_attr_open(): attribute open failed
+    major: Virtual Object Layer
+    minor: Can't open object
+  #004: H5VLcallback.c line 1092 in H5VL__attr_open(): attribute open failed
+    major: Virtual Object Layer
+    minor: Can't open object
+  #005: H5VLnative_attr.c line 164 in H5VL__native_attr_open(): unable to open attribute: 'contains_secondorder_forceconstant'
+    major: Attribute
+    minor: Can't open object
+  #006: H5Aint.c line 513 in H5A__open(): unable to load attribute info from object header for attribute: 'contains_secondorder_forceconstant'
+    major: Attribute
+    minor: Can't open object
+  #007: H5Oattribute.c line 498 in H5O__attr_open_by_name(): can't locate attribute: 'contains_secondorder_forceconstant'
+    major: Attribute
+    minor: Object not found
+HDF5-DIAG: Error detected in HDF5 (1.14.6) thread 1:
+  #000: H5A.c line 1022 in H5Aread(): can't synchronously read data
+    major: Attribute
+    minor: Read failed
+  #001: H5A.c line 987 in H5A__read_api_common(): not an attribute
+    major: Invalid arguments to routine
+    minor: Inappropriate type
+  #002: H5VLint.c line 1786 in H5VL_vol_object_verify(): identifier is not of specified type
+    major: Invalid arguments to routine
+    minor: Inappropriate type
+HDF5-DIAG: Error detected in HDF5 (1.14.6) thread 1:
+  #000: H5A.c line 2193 in H5Aclose(): not an attribute ID
+    major: Invalid arguments to routine
+    minor: Inappropriate type

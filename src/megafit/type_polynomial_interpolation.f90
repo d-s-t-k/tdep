@@ -92,7 +92,7 @@ subroutine initialize_polynomial( pl,order,ndim,xivals,xinames,order_per_dim )
 
     ! Some default parameters I have to fix in the near future:
     integer, parameter :: maxdim=7      ! 6 structural parameters, 1 temperature. Easy to fix more.
-    integer, parameter :: maxorder=4    ! reasonable hard limit for now
+    integer, parameter :: maxorder=6    ! allow up to 6th order polynomials
     integer, parameter :: maxcoeff=6435 ! enough for 7 dimensions to 8th order
     
     real(flyt) :: f0

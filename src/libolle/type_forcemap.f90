@@ -336,6 +336,7 @@ type lo_forcemap
     type(lo_forcemap_constraints) :: constraints
 contains
     procedure :: generate
+    procedure :: destroy
     procedure :: get_firstorder_forceconstant
     procedure :: get_secondorder_forceconstant
     procedure :: get_thirdorder_forceconstant
@@ -1171,10 +1172,204 @@ function size_in_mem(map) result(mem)
 
 end function
 
-!> destroy
+!> destroy and deallocate all arrays in the forcemap
 subroutine destroy(map)
     !> forcemap
     class(lo_forcemap), intent(inout) :: map
+
+    integer :: i
+
+    ! Reset scalar values
+    map%n_atom_uc = -lo_hugeint
+    map%n_atom_ss = -lo_hugeint
+    map%have_fc_singlet = .false.
+    map%have_fc_pair = .false.
+    map%have_fc_triplet = .false.
+    map%have_fc_quartet = .false.
+    map%n_fc_singlet_shell = -lo_hugeint
+    map%n_fc_pair_shell = -lo_hugeint
+    map%n_fc_triplet_shell = -lo_hugeint
+    map%n_fc_quartet_shell = -lo_hugeint
+    map%polar = -lo_hugeint
+    map%have_Z_pair = .false.
+    map%have_Z_triplet = .false.
+    map%have_eps_singlet = .false.
+    map%have_eps_pair = .false.
+    map%polarcorrectiontype = -lo_hugeint
+    map%n_Z_singlet_shell = -lo_hugeint
+    map%n_Z_pair_shell = -lo_hugeint
+    map%n_Z_triplet_shell = -lo_hugeint
+    map%n_eps_singlet_shell = -lo_hugeint
+    map%n_eps_pair_shell = -lo_hugeint
+
+    ! Deallocate unitcell (xuc) arrays
+    if ( allocated(map%xuc%fc_singlet) )       deallocate(map%xuc%fc_singlet)
+    if ( allocated(map%xuc%fc_pair) )          deallocate(map%xuc%fc_pair)
+    if ( allocated(map%xuc%fc_triplet) )       deallocate(map%xuc%fc_triplet)
+    if ( allocated(map%xuc%fc_quartet) )       deallocate(map%xuc%fc_quartet)
+    if ( allocated(map%xuc%x_fc_singlet) )     deallocate(map%xuc%x_fc_singlet)
+    if ( allocated(map%xuc%x_fc_pair) )        deallocate(map%xuc%x_fc_pair)
+    if ( allocated(map%xuc%x_fc_triplet) )     deallocate(map%xuc%x_fc_triplet)
+    if ( allocated(map%xuc%x_fc_quartet) )     deallocate(map%xuc%x_fc_quartet)
+    if ( allocated(map%xuc%fc_triplet_group) ) deallocate(map%xuc%fc_triplet_group)
+    if ( allocated(map%xuc%fc_quartet_group) ) deallocate(map%xuc%fc_quartet_group)
+    ! Dielectric unitcell arrays
+    if ( allocated(map%xuc%eps_singlet) )      deallocate(map%xuc%eps_singlet)
+    if ( allocated(map%xuc%eps_pair) )         deallocate(map%xuc%eps_pair)
+    if ( allocated(map%xuc%x_eps_global) )     deallocate(map%xuc%x_eps_global)
+    if ( allocated(map%xuc%x_eps_global_deriv)) deallocate(map%xuc%x_eps_global_deriv)
+    if ( allocated(map%xuc%x_eps_singlet) )    deallocate(map%xuc%x_eps_singlet)
+    if ( allocated(map%xuc%x_eps_pair) )       deallocate(map%xuc%x_eps_pair)
+    if ( allocated(map%xuc%Z_singlet) )        deallocate(map%xuc%Z_singlet)
+    if ( allocated(map%xuc%Z_pair) )           deallocate(map%xuc%Z_pair)
+    if ( allocated(map%xuc%Z_triplet) )        deallocate(map%xuc%Z_triplet)
+    if ( allocated(map%xuc%x_Z_singlet) )      deallocate(map%xuc%x_Z_singlet)
+    if ( allocated(map%xuc%x_Z_pair) )         deallocate(map%xuc%x_Z_pair)
+    if ( allocated(map%xuc%x_Z_triplet) )      deallocate(map%xuc%x_Z_triplet)
+    if ( allocated(map%xuc%Z_triplet_group) )  deallocate(map%xuc%Z_triplet_group)
+    map%xuc%n_fc_singlet = -lo_hugeint
+    map%xuc%n_fc_pair = -lo_hugeint
+    map%xuc%n_fc_triplet = -lo_hugeint
+    map%xuc%n_fc_quartet = -lo_hugeint
+    map%xuc%nx_fc_singlet = -lo_hugeint
+    map%xuc%nx_fc_pair = -lo_hugeint
+    map%xuc%nx_fc_triplet = -lo_hugeint
+    map%xuc%nx_fc_quartet = -lo_hugeint
+    map%xuc%n_eps_singlet = -lo_hugeint
+    map%xuc%n_eps_pair = -lo_hugeint
+    map%xuc%nx_eps_global = -lo_hugeint
+    map%xuc%nx_eps_singlet = -lo_hugeint
+    map%xuc%nx_eps_pair = -lo_hugeint
+    map%xuc%n_Z_singlet = -lo_hugeint
+    map%xuc%n_Z_pair = -lo_hugeint
+    map%xuc%n_Z_triplet = -lo_hugeint
+    map%xuc%nx_Z_singlet = -lo_hugeint
+    map%xuc%nx_Z_pair = -lo_hugeint
+    map%xuc%nx_Z_triplet = -lo_hugeint
+
+    ! Deallocate supercell (xss) arrays
+    if ( allocated(map%xss%ind_fc_singlet) )   deallocate(map%xss%ind_fc_singlet)
+    if ( allocated(map%xss%ind_fc_pair) )      deallocate(map%xss%ind_fc_pair)
+    if ( allocated(map%xss%ind_fc_triplet) )   deallocate(map%xss%ind_fc_triplet)
+    if ( allocated(map%xss%ind_fc_quartet) )   deallocate(map%xss%ind_fc_quartet)
+    if ( allocated(map%xss%ind_Z_singlet) )    deallocate(map%xss%ind_Z_singlet)
+    if ( allocated(map%xss%ind_Z_pair) )       deallocate(map%xss%ind_Z_pair)
+    if ( allocated(map%xss%ind_Z_triplet) )    deallocate(map%xss%ind_Z_triplet)
+    if ( allocated(map%xss%ind_eps_singlet) )  deallocate(map%xss%ind_eps_singlet)
+    if ( allocated(map%xss%ind_eps_pair) )     deallocate(map%xss%ind_eps_pair)
+    map%xss%n_fc_singlet = -lo_hugeint
+    map%xss%n_fc_pair = -lo_hugeint
+    map%xss%n_fc_triplet = -lo_hugeint
+    map%xss%n_fc_quartet = -lo_hugeint
+    map%xss%n_Z_singlet = -lo_hugeint
+    map%xss%n_Z_pair = -lo_hugeint
+    map%xss%n_Z_triplet = -lo_hugeint
+    map%xss%n_eps_singlet = -lo_hugeint
+    map%xss%n_eps_pair = -lo_hugeint
+
+    ! Deallocate shell arrays (these contain nested allocatables)
+    if ( allocated(map%fc_singlet_shell) ) then
+        do i=1,size(map%fc_singlet_shell)
+            if ( allocated(map%fc_singlet_shell(i)%ind_global) ) deallocate(map%fc_singlet_shell(i)%ind_global)
+            if ( allocated(map%fc_singlet_shell(i)%ind_local) )  deallocate(map%fc_singlet_shell(i)%ind_local)
+            if ( allocated(map%fc_singlet_shell(i)%coeff) )      deallocate(map%fc_singlet_shell(i)%coeff)
+        enddo
+        deallocate(map%fc_singlet_shell)
+    endif
+    if ( allocated(map%fc_pair_shell) ) then
+        do i=1,size(map%fc_pair_shell)
+            if ( allocated(map%fc_pair_shell(i)%ind_global) ) deallocate(map%fc_pair_shell(i)%ind_global)
+            if ( allocated(map%fc_pair_shell(i)%ind_local) )  deallocate(map%fc_pair_shell(i)%ind_local)
+            if ( allocated(map%fc_pair_shell(i)%coeff) )      deallocate(map%fc_pair_shell(i)%coeff)
+        enddo
+        deallocate(map%fc_pair_shell)
+    endif
+    if ( allocated(map%fc_triplet_shell) ) then
+        do i=1,size(map%fc_triplet_shell)
+            if ( allocated(map%fc_triplet_shell(i)%ind_global) ) deallocate(map%fc_triplet_shell(i)%ind_global)
+            if ( allocated(map%fc_triplet_shell(i)%ind_local) )  deallocate(map%fc_triplet_shell(i)%ind_local)
+            if ( allocated(map%fc_triplet_shell(i)%coeff) )      deallocate(map%fc_triplet_shell(i)%coeff)
+        enddo
+        deallocate(map%fc_triplet_shell)
+    endif
+    if ( allocated(map%fc_quartet_shell) ) then
+        do i=1,size(map%fc_quartet_shell)
+            if ( allocated(map%fc_quartet_shell(i)%ind_global) ) deallocate(map%fc_quartet_shell(i)%ind_global)
+            if ( allocated(map%fc_quartet_shell(i)%ind_local) )  deallocate(map%fc_quartet_shell(i)%ind_local)
+            if ( allocated(map%fc_quartet_shell(i)%coeff) )      deallocate(map%fc_quartet_shell(i)%coeff)
+        enddo
+        deallocate(map%fc_quartet_shell)
+    endif
+
+    ! Deallocate dielectric shell arrays
+    if ( allocated(map%Z_singlet_shell) ) then
+        do i=1,size(map%Z_singlet_shell)
+            if ( allocated(map%Z_singlet_shell(i)%ind_global) ) deallocate(map%Z_singlet_shell(i)%ind_global)
+            if ( allocated(map%Z_singlet_shell(i)%ind_local) )  deallocate(map%Z_singlet_shell(i)%ind_local)
+            if ( allocated(map%Z_singlet_shell(i)%coeff) )      deallocate(map%Z_singlet_shell(i)%coeff)
+        enddo
+        deallocate(map%Z_singlet_shell)
+    endif
+    if ( allocated(map%Z_pair_shell) ) then
+        do i=1,size(map%Z_pair_shell)
+            if ( allocated(map%Z_pair_shell(i)%ind_global) ) deallocate(map%Z_pair_shell(i)%ind_global)
+            if ( allocated(map%Z_pair_shell(i)%ind_local) )  deallocate(map%Z_pair_shell(i)%ind_local)
+            if ( allocated(map%Z_pair_shell(i)%coeff) )      deallocate(map%Z_pair_shell(i)%coeff)
+        enddo
+        deallocate(map%Z_pair_shell)
+    endif
+    if ( allocated(map%Z_triplet_shell) ) then
+        do i=1,size(map%Z_triplet_shell)
+            if ( allocated(map%Z_triplet_shell(i)%ind_global) ) deallocate(map%Z_triplet_shell(i)%ind_global)
+            if ( allocated(map%Z_triplet_shell(i)%ind_local) )  deallocate(map%Z_triplet_shell(i)%ind_local)
+            if ( allocated(map%Z_triplet_shell(i)%coeff) )      deallocate(map%Z_triplet_shell(i)%coeff)
+        enddo
+        deallocate(map%Z_triplet_shell)
+    endif
+    ! eps_global_shell is not an array, but has allocatable members
+    if ( allocated(map%eps_global_shell%ind_global) ) deallocate(map%eps_global_shell%ind_global)
+    if ( allocated(map%eps_global_shell%ind_local) )  deallocate(map%eps_global_shell%ind_local)
+    if ( allocated(map%eps_global_shell%coeff) )      deallocate(map%eps_global_shell%coeff)
+    if ( allocated(map%eps_singlet_shell) ) then
+        do i=1,size(map%eps_singlet_shell)
+            if ( allocated(map%eps_singlet_shell(i)%ind_global) ) deallocate(map%eps_singlet_shell(i)%ind_global)
+            if ( allocated(map%eps_singlet_shell(i)%ind_local) )  deallocate(map%eps_singlet_shell(i)%ind_local)
+            if ( allocated(map%eps_singlet_shell(i)%coeff) )      deallocate(map%eps_singlet_shell(i)%coeff)
+        enddo
+        deallocate(map%eps_singlet_shell)
+    endif
+    if ( allocated(map%eps_pair_shell) ) then
+        do i=1,size(map%eps_pair_shell)
+            if ( allocated(map%eps_pair_shell(i)%ind_global) ) deallocate(map%eps_pair_shell(i)%ind_global)
+            if ( allocated(map%eps_pair_shell(i)%ind_local) )  deallocate(map%eps_pair_shell(i)%ind_local)
+            if ( allocated(map%eps_pair_shell(i)%coeff) )      deallocate(map%eps_pair_shell(i)%coeff)
+        enddo
+        deallocate(map%eps_pair_shell)
+    endif
+
+    ! Deallocate operation arrays
+    if ( allocated(map%op_singlet) ) deallocate(map%op_singlet)
+    if ( allocated(map%op_pair) )    deallocate(map%op_pair)
+    if ( allocated(map%op_triplet) ) deallocate(map%op_triplet)
+    if ( allocated(map%op_quartet) ) deallocate(map%op_quartet)
+
+    ! Deallocate constraint arrays
+    if ( allocated(map%constraints%eq1) ) deallocate(map%constraints%eq1)
+    if ( allocated(map%constraints%eq2) ) deallocate(map%constraints%eq2)
+    if ( allocated(map%constraints%eq3) ) deallocate(map%constraints%eq3)
+    if ( allocated(map%constraints%eq4) ) deallocate(map%constraints%eq4)
+    if ( allocated(map%constraints%d1) )  deallocate(map%constraints%d1)
+    if ( allocated(map%constraints%d2) )  deallocate(map%constraints%d2)
+    if ( allocated(map%constraints%d3) )  deallocate(map%constraints%d3)
+    if ( allocated(map%constraints%d4) )  deallocate(map%constraints%d4)
+    if ( allocated(map%constraints%eqz3) ) deallocate(map%constraints%eqz3)
+    if ( allocated(map%constraints%dz) )   deallocate(map%constraints%dz)
+    map%constraints%nconstr_tot = -lo_hugeint
+    map%constraints%neq1 = -lo_hugeint
+    map%constraints%neq2 = -lo_hugeint
+    map%constraints%neq3 = -lo_hugeint
+    map%constraints%neq4 = -lo_hugeint
+    map%constraints%neqz3 = -lo_hugeint
 
 end subroutine
 

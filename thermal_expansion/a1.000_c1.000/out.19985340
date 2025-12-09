@@ -1,0 +1,36 @@
+ READ STRUCTURE AND SETUP CUTOFFS
+ ... reading unitcell
+ 
+ READING SIMULATION FROM FILE
+ ... made space and decided on heuristics
+ ... reading simulation                  100.0% |========================================|  0.04839s
+ ... got displacements
+ ... short summary of simulation:
+                       number of atoms: 380
+              number of configurations: 50
+                         timestep (fs): 2.00000
+               average temperature (K): 1.00000
+                 thermostat set to (K): 300.00000
+                average pressure (GPa): 1.00000
+   average stresstensor xx xy xz (GPa):       1.0000       1.0000       1.0000 
+   average stresstensor yx yy yz (GPa):       1.0000       1.0000       1.0000 
+   average stresstensor zx zy zz (GPa):       1.0000       1.0000       1.0000 
+ ... finished reading simulation (0.05416s)
+ 
+ REPORT GRADE OF OVERDETERMINATION
+     total number of equations:        57000
+ 
+ SOLVING FOR INTERACTION TENSORS
+ ... distributed data
+ ... no polar interactions to worry about
+ 
+ GENERATING CONSTRAINTS
+ ... created 0 constraints (0.00065s)
+ ... creating fc coefficients            100.0% |========================================|  0.00134s
+ ... least squares solver
+ ... finished solving for forceconstants
+ ... diagnostics from three-fold cross-validation:
+ ERROR: trying to allocate an array of size  -2147483645
+        that could not have been intended.
+    file: ifc_solvers_diagnostics.f90
+    line:           41

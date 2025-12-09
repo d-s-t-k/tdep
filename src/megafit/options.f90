@@ -57,8 +57,14 @@ type lo_opts
     logical :: dumpfullgrid=.false.
     ! Dump things on the input grid
     logical :: dumpinputgrid=.false.
+    ! Dump force constants at each grid point
+    logical :: dumpforceconstants=.false.
     ! Calculate a bunch of diagnostics
     logical :: diagnostics=.false.
+    ! Temperature range for QHA evaluation
+    real(flyt) :: trangemin=-lo_huge
+    real(flyt) :: trangemax=-lo_huge
+    integer :: trangenpts=-lo_hugeint
     ! cutoff for dielectric pair interactions
     real(flyt) :: dielcutoff2=-lo_huge
     ! cutoff for dielectric triplet interactions
@@ -81,6 +87,7 @@ subroutine parse(opts)
     !
     integer :: errctr
     logical :: dumlog
+    real(flyt), dimension(3) :: dumflytv
 
 
     call cli%init(progname    = 'megafit',&
@@ -204,6 +211,10 @@ subroutine parse(opts)
     call cli%add(switch='--dumpinputgrid',hidden=.true.,help='',&
         required=.false.,act='store_true',def='.false.',error=lo_status)
         if ( lo_status .ne. 0 ) stop
+    call cli%add(switch='--dumpforceconstants',switch_ab='-dfc',&
+        help='Dump force constants, structures, and grid info to HDF5 file for each a/c pair.',&
+        required=.false.,act='store_true',def='.false.',error=lo_status)
+        if ( lo_status .ne. 0 ) stop
     call cli%add(switch='--diagnostics',hidden=.true.,help='',&
         required=.false.,act='store_true',def='.false.',error=lo_status)
         if ( lo_status .ne. 0 ) stop
@@ -217,6 +228,11 @@ subroutine parse(opts)
         if ( lo_status .ne. 0 ) stop
     call cli%add(switch='--weighted',hidden=.true.,help='',&
         required=.false.,act='store_true',def='.false.',error=lo_status)
+        if ( lo_status .ne. 0 ) stop
+
+    call cli%add(switch='--temperature_range',switch_ab='-tr',&
+        help='Temperature range for QHA evaluation: min max npoints (e.g., 1 1000 40 for 1-1000K in ~25K steps).',&
+        nargs='3',required=.false.,act='store',def='1 1000 40',error=lo_status)
         if ( lo_status .ne. 0 ) stop
 
     ! actually parse it
@@ -271,10 +287,15 @@ subroutine parse(opts)
     call cli%get(switch='--pairfittype',val=opts%pairfittype,                error=lo_status); errctr=errctr+lo_status
     call cli%get(switch='--dumpgrid',val=opts%dumpfullgrid,                  error=lo_status); errctr=errctr+lo_status
     call cli%get(switch='--dumpinputgrid',val=opts%dumpinputgrid,            error=lo_status); errctr=errctr+lo_status
+    call cli%get(switch='--dumpforceconstants',val=opts%dumpforceconstants,  error=lo_status); errctr=errctr+lo_status
     call cli%get(switch='--diagnostics',val=opts%diagnostics,                error=lo_status); errctr=errctr+lo_status
     call cli%get(switch='--weighted',val=opts%weighted,                      error=lo_status); errctr=errctr+lo_status
     call cli%get(switch='-dc2',val=opts%dielcutoff2)
     call cli%get(switch='-dc3',val=opts%dielcutoff3)
+    call cli%get(switch='--temperature_range', val=dumflytv)
+    opts%trangemin = dumflytv(1)
+    opts%trangemax = dumflytv(2)
+    opts%trangenpts = int(anint(dumflytv(3)))
     if ( errctr .gt. 0 ) stop
 
     ! Convert to atomic units right away

@@ -3,11 +3,11 @@ module gridenergy
 !! Evaluate forceconstants and associated quantities at arbitrary points
 use konstanter, only: flyt,r8,i8,lo_huge,lo_hugeint,lo_pi,lo_twopi,lo_imag,lo_status,lo_exitcode_param,lo_exitcode_symmetry,&
                       lo_tol,lo_sqtol,lo_pressure_HartreeBohr_to_GPa,lo_pressure_GPa_to_HartreeBohr,lo_Hartree_to_eV,&
-                      lo_volume_bohr_to_A,lo_volume_A_to_bohr,lo_freqtol,lo_kb_Hartree
+                      lo_volume_bohr_to_A,lo_volume_A_to_bohr,lo_freqtol,lo_kb_Hartree,lo_A_to_bohr,lo_bohr_to_A
 use gottochblandat, only: walltime,tochar,lo_progressbar_init,lo_progressbar,lo_looptimer,lo_sqnorm,lo_mean,&
                           lo_planck,open_file,lo_does_file_exist,lo_flattentensor,lo_linspace,qsort,lo_return_unique,&
                           lo_linear_least_squares
-use mpi_wrappers, only: lo_mpi_helper,lo_stop_gracefully,MPI_DOUBLE_PRECISION,MPI_SUM,MPI_IN_PLACE
+use mpi_wrappers, only: lo_mpi_helper,lo_stop_gracefully,MPI_DOUBLE_PRECISION,MPI_SUM,MPI_IN_PLACE,MPI_INTEGER
 use lo_memtracker, only: lo_mem_helper
 use geometryfunctions, only: lo_linesegment,lo_convex_hull_2d
 use type_crystalstructure, only: lo_crystalstructure
@@ -26,7 +26,7 @@ use hdf5_wrappers, only: lo_hdf5_helper,lo_h5_store_data,lo_h5_store_attribute,H
 
 use type_gridsim, only: lo_gridsim
 use type_equation_of_state, only: lo_eos,lo_eos_1d,lo_eos_2d,lo_eos_birch_murnaghan,lo_eos_vinet,lo_eos_2d_birch_murnaghan
-use type_polynomial_interpolation, only: lo_grid_interpolation
+use type_polynomial_interpolation, only: lo_grid_interpolation,lo_polynomial
 use helperobjects, only: megafit_secondorder_constraints
 
 implicit none
@@ -101,6 +101,22 @@ type lo_gridenergy_ac
     real(flyt), dimension(:), allocatable :: a_min, c_min, F_min  ! minimum a,c,F at each T
     !> polynomial coefficients for the 2D fit
     real(flyt), dimension(:,:), allocatable :: poly_coeffs  ! coefficients at each T
+    !> static energy polynomial (2D fit to DFT energies)
+    type(lo_polynomial) :: static_energy_poly
+    !> static energy polynomial coefficients
+    real(flyt), dimension(:), allocatable :: static_energy_coeffs
+    !> static energies at training grid points (per atom, in Hartree)
+    real(flyt), dimension(:), allocatable :: static_energy_training
+    !> training grid coordinates (a, c) for the polynomial
+    real(flyt), dimension(:,:), allocatable :: training_coords
+    !> coordinate scaling for polynomial evaluation
+    real(flyt), dimension(2) :: coord_shift, coord_scale
+    !> phonon free energy polynomial (2D fit)
+    type(lo_polynomial) :: phonon_energy_poly
+    !> phonon free energy polynomial coefficients (one set per temperature)
+    real(flyt), dimension(:,:), allocatable :: phonon_energy_coeffs  ! (ncoeff, nt)
+    !> phonon free energies at training grid points (per atom, in Hartree)
+    real(flyt), dimension(:,:), allocatable :: phonon_energy_training  ! (nsim, nt)
 end type
 
 !> a-c-T lattice parameter grid with T-dependent force constants
@@ -168,7 +184,7 @@ contains
 #include "gridenergy_impossible.f90"
 
 !> evaluate the irreducible representation at a certain point
-subroutine generate(ge,gs,map,qgrid_harm,qgrid_anharm,quasiharmonic,dumpgrid,mw,mem)
+subroutine generate(ge,gs,map,qgrid_harm,qgrid_anharm,quasiharmonic,dumpgrid,dumpforceconstants,trangemin,trangemax,trangenpts,polyorder,mw,mem)
     !> interpolation grid
     class(lo_gridenergy), intent(out) :: ge
     !> simulation grid
@@ -183,6 +199,16 @@ subroutine generate(ge,gs,map,qgrid_harm,qgrid_anharm,quasiharmonic,dumpgrid,mw,
     logical, intent(in) :: quasiharmonic
     !> should I dump the input files for the entire grid
     logical, intent(in) :: dumpgrid
+    !> should I dump force constants to HDF5
+    logical, intent(in) :: dumpforceconstants
+    !> temperature range min
+    real(flyt), intent(in) :: trangemin
+    !> temperature range max
+    real(flyt), intent(in) :: trangemax
+    !> number of temperature points
+    integer, intent(in) :: trangenpts
+    !> polynomial order for free energy surface fitting
+    integer, intent(in) :: polyorder
     !> MPI helper
     type(lo_mpi_helper), intent(inout) :: mw
     !> memory tracker
@@ -311,43 +337,7 @@ subroutine generate(ge,gs,map,qgrid_harm,qgrid_anharm,quasiharmonic,dumpgrid,mw,
             write(*,*) '              ndim:',ge%ndim
         endif
         ! Figure out what kind of grid we have.
-        select case(gs%ndim)
-        case(pm_vgrid)
-            if ( gs%info%dim_volume .gt. 0 ) then
-                ! V grid
-                ge%gridtype=pm_vgrid !  1
-            else
-                call lo_stop_gracefully(['1-D NOT DONE'],lo_exitcode_param,__FILE__,__LINE__,mw%comm)
-            endif
-        case(pm_vtgrid)
-            if ( gs%info%dim_temperature .gt. 0 .and. gs%info%dim_volume .gt. 0 ) then
-                ! V-T grid
-                ge%gridtype=pm_vtgrid !  1
-                if ( mw%talk ) then
-                    write(*,*) '          gridtype:',ge%gridtype,'(V-T grid)'
-                    write(*,*) '   temperature-dim:',gs%info%dim_temperature
-                    write(*,*) '        volume-dim:',gs%info%dim_volume
-                endif
-            else
-                call lo_stop_gracefully(['NOT DONE'],lo_exitcode_param,__FILE__,__LINE__,mw%comm)
-                stop
-            endif
-        case(pm_vtetagrid)
-            if ( gs%info%dim_temperature .gt. 0 .and. gs%info%dim_volume .gt. 0 .and. gs%info%dim_eta .gt. 0 ) then
-                ! V-T-eta grid
-                ge%gridtype=pm_vtetagrid !2
-                if ( mw%talk ) then
-                    write(*,*) '          gridtype:',ge%gridtype,'(V-T-eta grid)'
-                    write(*,*) '   temperature-dim:',gs%info%dim_temperature
-                    write(*,*) '        volume-dim:',gs%info%dim_volume
-                    write(*,*) '           eta-dim:',gs%info%dim_eta
-                endif
-            else
-                call lo_stop_gracefully(['NOT DONE'],lo_exitcode_param,__FILE__,__LINE__,mw%comm)
-            endif
-        end select
-        
-        ! Override gridtype if evalmode=4 was used (a-c grid)
+        ! First check if evalmode already determined the gridtype
         if ( evalmode .eq. 4 ) then
             ge%gridtype=pm_acgrid
             if ( mw%talk ) then
@@ -355,9 +345,7 @@ subroutine generate(ge,gs,map,qgrid_harm,qgrid_anharm,quasiharmonic,dumpgrid,mw,
                 write(*,*) '             a-dim:',gs%info%dim_a
                 write(*,*) '             c-dim:',gs%info%dim_c
             endif
-        endif
-        ! Override gridtype if evalmode=5 was used (a-c-T grid with T-dependent FCs)
-        if ( evalmode .eq. 5 ) then
+        elseif ( evalmode .eq. 5 ) then
             ge%gridtype=pm_actgrid
             if ( mw%talk ) then
                 write(*,*) '          gridtype:',ge%gridtype,'(a-c-T lattice parameter grid with T-dependent FCs)'
@@ -365,6 +353,52 @@ subroutine generate(ge,gs,map,qgrid_harm,qgrid_anharm,quasiharmonic,dumpgrid,mw,
                 write(*,*) '             c-dim:',gs%info%dim_c
                 write(*,*) '             T-dim:',gs%info%dim_temperature
             endif
+        else
+            ! Determine gridtype from dimensions
+            select case(gs%ndim)
+            case(1)
+                if ( gs%info%dim_volume .gt. 0 ) then
+                    ! V grid
+                    ge%gridtype=pm_vgrid !  1
+                else
+                    call lo_stop_gracefully(['1-D NOT DONE'],lo_exitcode_param,__FILE__,__LINE__,mw%comm)
+                endif
+            case(2)
+                if ( gs%info%dim_temperature .gt. 0 .and. gs%info%dim_volume .gt. 0 ) then
+                    ! V-T grid
+                    ge%gridtype=pm_vtgrid !  1
+                    if ( mw%talk ) then
+                        write(*,*) '          gridtype:',ge%gridtype,'(V-T grid)'
+                        write(*,*) '   temperature-dim:',gs%info%dim_temperature
+                        write(*,*) '        volume-dim:',gs%info%dim_volume
+                    endif
+                elseif ( gs%info%dim_a .gt. 0 .and. gs%info%dim_c .gt. 0 ) then
+                    ! a-c grid
+                    ge%gridtype=pm_acgrid
+                    if ( mw%talk ) then
+                        write(*,*) '          gridtype:',ge%gridtype,'(a-c grid)'
+                        write(*,*) '             a-dim:',gs%info%dim_a
+                        write(*,*) '             c-dim:',gs%info%dim_c
+                    endif
+                else
+                    call lo_stop_gracefully(['2-D grid type not recognized'],lo_exitcode_param,__FILE__,__LINE__,mw%comm)
+                endif
+            case(3)
+                if ( gs%info%dim_temperature .gt. 0 .and. gs%info%dim_volume .gt. 0 .and. gs%info%dim_eta .gt. 0 ) then
+                    ! V-T-eta grid
+                    ge%gridtype=pm_vtetagrid !2
+                    if ( mw%talk ) then
+                        write(*,*) '          gridtype:',ge%gridtype,'(V-T-eta grid)'
+                        write(*,*) '   temperature-dim:',gs%info%dim_temperature
+                        write(*,*) '        volume-dim:',gs%info%dim_volume
+                        write(*,*) '           eta-dim:',gs%info%dim_eta
+                    endif
+                else
+                    call lo_stop_gracefully(['3-D grid type not recognized'],lo_exitcode_param,__FILE__,__LINE__,mw%comm)
+                endif
+            case default
+                call lo_stop_gracefully(['Unsupported number of dimensions'],lo_exitcode_param,__FILE__,__LINE__,mw%comm)
+            end select
         endif
     end block init
 
@@ -599,7 +633,7 @@ subroutine generate(ge,gs,map,qgrid_harm,qgrid_anharm,quasiharmonic,dumpgrid,mw,
         case(pm_acgrid) ! a-c lattice parameter grid
             ge%grid_AC%na=ge%pts_per_dim( gs%info%dim_a )
             ge%grid_AC%nc=ge%pts_per_dim( gs%info%dim_c )
-            ge%grid_AC%nt=100  ! Default number of temperature points for evaluation
+            ge%grid_AC%nt=trangenpts  ! from command line option
             
             ! Allocate storage
             allocate( ge%grid_AC%a_values( ge%grid_AC%na ) )
@@ -614,8 +648,8 @@ subroutine generate(ge,gs,map,qgrid_harm,qgrid_anharm,quasiharmonic,dumpgrid,mw,
             allocate( ge%grid_AC%a_min ( ge%grid_AC%nt ) )
             allocate( ge%grid_AC%c_min ( ge%grid_AC%nt ) )
             allocate( ge%grid_AC%F_min ( ge%grid_AC%nt ) )
-            ! For 4th order 2D polynomial: (a^0 to a^4) x (c^0 to c^4) = 25 terms
-            allocate( ge%grid_AC%poly_coeffs( 25, ge%grid_AC%nt ) )
+            ! For 2D polynomial of order N: (N+1)*(N+1) terms
+            allocate( ge%grid_AC%poly_coeffs( (polyorder+1)*(polyorder+1), ge%grid_AC%nt ) )
             
             ge%grid_AC%a_values=0.0_flyt
             ge%grid_AC%c_values=0.0_flyt
@@ -651,8 +685,8 @@ subroutine generate(ge,gs,map,qgrid_harm,qgrid_anharm,quasiharmonic,dumpgrid,mw,
                 call lo_linspace(f0,f1,ge%grid_AC%c_values)
             end select
 
-            ! Temperature grid for QHA evaluation (0 to 2000K default)
-            call lo_linspace(1.0_flyt,2000.0_flyt,ge%grid_AC%temperature)
+            ! Temperature grid for QHA evaluation (from command line)
+            call lo_linspace(trangemin,trangemax,ge%grid_AC%temperature)
 
             ! Set up the grid coordinates (only a and c dimensions)
             npts=ge%grid_AC%na * ge%grid_AC%nc
@@ -682,6 +716,111 @@ subroutine generate(ge,gs,map,qgrid_harm,qgrid_anharm,quasiharmonic,dumpgrid,mw,
                 write(*,*) '         c values: ',tochar(minval(ge%grid_AC%c_values)),' -> ',tochar(maxval(ge%grid_AC%c_values)),' with ',tochar(ge%grid_AC%nc),' points (Angstrom)'
                 write(*,*) '      temperatures: ',tochar(minval(ge%grid_AC%temperature)),' -> ',tochar(maxval(ge%grid_AC%temperature)),' with ',tochar(ge%grid_AC%nt),' points (for QHA evaluation)'
             endif
+            
+            ! --- Create static energy polynomial fit from DFT energies ---
+            ! This fits a polynomial to the static DFT energies at the training grid points
+            staticenergy_ac: block
+                real(flyt), dimension(:,:), allocatable :: design_matrix, scaled_coords
+                real(flyt), dimension(:), allocatable :: E_static, coeffs
+                real(flyt) :: a_min_train, a_max_train, c_min_train, c_max_train
+                real(flyt) :: a_scaled, c_scaled, f0
+                character(len=2), dimension(2) :: cnames
+                integer :: isim, ncoeff, irow, icol, ia_pow, ic_pow, order_static
+                
+                ! Use the polynomial order from command line
+                order_static = polyorder
+                allocate(ge%grid_AC%static_energy_training(gs%nsim))
+                allocate(ge%grid_AC%training_coords(2, gs%nsim))
+                ge%grid_AC%static_energy_training = 0.0_flyt
+                ge%grid_AC%training_coords = 0.0_flyt
+                
+                ! Get static energies: either from infile.simulations or error if not provided
+                if ( gs%have_static_energy ) then
+                    ! Use static energies from infile.simulations (already in Hartree/atom)
+                    ge%grid_AC%static_energy_training = gs%static_energy
+                    if ( mw%talk ) then
+                        write(*,*) ''
+                        write(*,*) 'USING STATIC ENERGIES FROM INFILE.SIMULATIONS'
+                        write(*,*) '  Energy range: ', tochar(minval(gs%static_energy)*lo_Hartree_to_eV*1000.0_flyt), ' to ', &
+                                   tochar(maxval(gs%static_energy)*lo_Hartree_to_eV*1000.0_flyt), ' meV/atom'
+                    endif
+                else
+                    ! No static energies provided - this is an error for a-c grid with eosname=null
+                    call lo_stop_gracefully(['For a-c grid with no EOS, static energies must be provided in infile.simulations. '// &
+                                            'Format: a_value c_value static_energy_eV_atom path_to_hdf5'], &
+                                            lo_exitcode_param,__FILE__,__LINE__,mw%comm)
+                endif
+                
+                ! Store training coordinates (a, c) from grid_coordinates
+                ! Note: grid_coordinates stores in Bohr, need to convert to Angstrom for consistency
+                do isim=1,gs%nsim
+                    ge%grid_AC%training_coords(1, isim) = gs%grid_coordinates(gs%info%dim_a, isim) / lo_A_to_bohr
+                    ge%grid_AC%training_coords(2, isim) = gs%grid_coordinates(gs%info%dim_c, isim) / lo_A_to_bohr
+                enddo
+                
+                ! Set up coordinate scaling for numerical stability
+                a_min_train = minval(ge%grid_AC%training_coords(1,:))
+                a_max_train = maxval(ge%grid_AC%training_coords(1,:))
+                c_min_train = minval(ge%grid_AC%training_coords(2,:))
+                c_max_train = maxval(ge%grid_AC%training_coords(2,:))
+                
+                ge%grid_AC%coord_shift(1) = a_min_train
+                ge%grid_AC%coord_shift(2) = c_min_train
+                ge%grid_AC%coord_scale(1) = 1.0_flyt / (a_max_train - a_min_train)
+                ge%grid_AC%coord_scale(2) = 1.0_flyt / (c_max_train - c_min_train)
+                
+                ! Initialize the polynomial using command line order
+                order_static = polyorder
+                cnames(1) = 'a'
+                cnames(2) = 'c'
+                
+                ! Create scaled coordinates for polynomial fitting
+                allocate(scaled_coords(2, gs%nsim))
+                do isim=1,gs%nsim
+                    scaled_coords(1, isim) = (ge%grid_AC%training_coords(1, isim) - ge%grid_AC%coord_shift(1)) * ge%grid_AC%coord_scale(1)
+                    scaled_coords(2, isim) = (ge%grid_AC%training_coords(2, isim) - ge%grid_AC%coord_shift(2)) * ge%grid_AC%coord_scale(2)
+                enddo
+                
+                call ge%grid_AC%static_energy_poly%init(order_static, 2, scaled_coords, cnames)
+                ncoeff = ge%grid_AC%static_energy_poly%ncoeff
+                
+                ! Allocate coefficient storage
+                allocate(ge%grid_AC%static_energy_coeffs(ncoeff))
+                ge%grid_AC%static_energy_coeffs = 0.0_flyt
+                
+                ! Build design matrix and solve least squares
+                allocate(design_matrix(gs%nsim, ncoeff))
+                allocate(E_static(gs%nsim))
+                allocate(coeffs(ncoeff))
+                
+                design_matrix = ge%grid_AC%static_energy_poly%coeffM
+                E_static = ge%grid_AC%static_energy_training
+                
+                ! Solve: design_matrix * coeffs = E_static
+                ! Using the DGELS wrapper (least squares)
+                call lo_linear_least_squares(design_matrix, E_static, coeffs)
+                ge%grid_AC%static_energy_coeffs = coeffs
+                
+                ! Report fit quality
+                if (mw%talk) then
+                    f0 = 0.0_flyt
+                    do isim=1,gs%nsim
+                        f0 = f0 + (ge%grid_AC%static_energy_poly%eval(scaled_coords(:,isim), coeffs) - &
+                                   ge%grid_AC%static_energy_training(isim))**2
+                    enddo
+                    f0 = sqrt(f0 / real(gs%nsim, flyt)) * lo_Hartree_to_eV * 1000.0_flyt  ! RMSE in meV/atom
+                    write(*,*) ''
+                    write(*,*) 'STATIC ENERGY POLYNOMIAL FIT (order ',order_static,' 2D)'
+                    write(*,*) '  Number of training points: ', gs%nsim
+                    write(*,*) '  Number of coefficients:    ', ncoeff
+                    write(*,*) '  RMSE:                      ', tochar(f0), ' meV/atom'
+                    write(*,*) '  Energy range:              ', tochar(minval(E_static)*lo_Hartree_to_eV*1000.0_flyt), ' to ', &
+                               tochar(maxval(E_static)*lo_Hartree_to_eV*1000.0_flyt), ' meV/atom'
+                endif
+                
+                deallocate(design_matrix, E_static, coeffs, scaled_coords)
+            end block staticenergy_ac
+            
         case(pm_actgrid) ! a-c-T lattice parameter grid with T-dependent FCs
             ge%grid_ACT%na=ge%pts_per_dim( gs%info%dim_a )
             ge%grid_ACT%nc=ge%pts_per_dim( gs%info%dim_c )
@@ -700,7 +839,7 @@ subroutine generate(ge,gs,map,qgrid_harm,qgrid_anharm,quasiharmonic,dumpgrid,mw,
             allocate( ge%grid_ACT%a_min ( ge%grid_ACT%nt ) )
             allocate( ge%grid_ACT%c_min ( ge%grid_ACT%nt ) )
             allocate( ge%grid_ACT%F_min ( ge%grid_ACT%nt ) )
-            allocate( ge%grid_ACT%poly_coeffs( 25, ge%grid_ACT%nt ) )
+            allocate( ge%grid_ACT%poly_coeffs( (polyorder+1)*(polyorder+1), ge%grid_ACT%nt ) )
             
             ge%grid_ACT%a_values=0.0_flyt
             ge%grid_ACT%c_values=0.0_flyt
@@ -841,9 +980,12 @@ subroutine generate(ge,gs,map,qgrid_harm,qgrid_anharm,quasiharmonic,dumpgrid,mw,
     case(pm_vgrid)
         call Vfinalize( ge%grid_V,gs,map,'outfile.interpolated_free_energy.hdf5',qgrid_harm,mw,mem )
     case(pm_acgrid)
-        call ACfinalize( ge%grid_AC,gs,map,'outfile.interpolated_free_energy.hdf5',qgrid_harm,mw,mem )
+        call ACfinalize( ge%grid_AC,gs,map,'outfile.interpolated_free_energy.hdf5',qgrid_harm,polyorder,mw,mem )
+        if ( dumpforceconstants .and. mw%talk ) then
+            call dump_ac_forceconstants(ge%grid_AC,gs,map,'outfile.forceconstants_grid.hdf5',mw,mem)
+        endif
     case(pm_actgrid)
-        call ACTfinalize( ge%grid_ACT,gs,map,'outfile.interpolated_free_energy.hdf5',qgrid_harm,mw,mem )
+        call ACTfinalize( ge%grid_ACT,gs,map,'outfile.interpolated_free_energy.hdf5',qgrid_harm,polyorder,mw,mem )
     case(pm_vtgrid)
         call VTfinalize( ge%grid_VT,gs,map,'outfile.interpolated_free_energy.hdf5',qgrid_harm,quasiharmonic,pressurestep,dumpgrid,mw,mem )
     case(pm_vtetagrid)
@@ -1176,13 +1318,10 @@ subroutine evaluate_acgrid_qha(ge,gs,map,qgrid_harm,qgrid_anharm,mw,mem,verbosit
     type(lo_phonon_dispersions) :: dr
     type(lo_crystalstructure) :: p
     type(lo_forceconstant_secondorder) :: fc
-    type(lo_forceconstant_thirdorder) :: fct
-    type(lo_forceconstant_fourthorder) :: fcf
     real(flyt), dimension(:,:), allocatable :: pairconstraints
     real(flyt), dimension(2) :: depvar
-    real(flyt) :: t0,fph,f3,f4
+    real(flyt) :: t0
     integer :: ia,ic,it,nconstr,ipt,npts
-    logical :: have_anharmonic
 
     if ( mw%talk ) then
         t0=walltime()
@@ -1192,24 +1331,20 @@ subroutine evaluate_acgrid_qha(ge,gs,map,qgrid_harm,qgrid_anharm,mw,mem,verbosit
     endif
 
     npts = ge%grid_AC%na * ge%grid_AC%nc
-    
-    ! Check if we have anharmonic force constants
-    have_anharmonic = map%have_fc_triplet .and. map%have_fc_quartet .and. (qgrid_anharm(1) .gt. 0)
-    if ( mw%talk .and. have_anharmonic ) then
-        write(*,*) '... including anharmonic (3rd+4th order) contributions'
-    endif
 
     ! Loop over a,c pairs
+    ! NOTE: All ranks must participate in lo_generate_qmesh and dr%generate because they
+    ! contain MPI collective operations. We cannot use a simple cycle pattern here.
+    ! Instead, all ranks do the work but only rank 0 stores the results.
     ipt=0
     do ia=1,ge%grid_AC%na
     do ic=1,ge%grid_AC%nc
         ipt=ipt+1
-        if ( mod(ipt-1,mw%n) .ne. mw%r ) cycle
 
         depvar(gs%info%dim_a)=ge%grid_AC%a_values(ia)
         depvar(gs%info%dim_c)=ge%grid_AC%c_values(ic)
 
-        ! Get structure at this a,c
+        ! Get structure at this a,c - all ranks need this for collective q-mesh generation
         call gs%structure%interpolate(depvar,p,-1)  ! -1 means no special volume handling
         call p%classify('wedge',timereversal=.true.)
 
@@ -1222,66 +1357,55 @@ subroutine evaluate_acgrid_qha(ge,gs,map,qgrid_harm,qgrid_anharm,mw,mem,verbosit
         endif
         call map%get_secondorder_forceconstant(p,fc,mem,-1)
 
-        ! Get static energy (interpolated)
-        call gs%energy%interpolate( depvar, ge%grid_AC%U(ia,ic,1) )
-        ge%grid_AC%U(ia,ic,:) = ge%grid_AC%U(ia,ic,1)
-
-        ! Get delta U0 from interpolation (if available)
-        ge%grid_AC%U0(ia,ic,:) = 0.0_flyt
-
-        ! Generate q-mesh and dispersions once per (a,c) point
+        ! Generate q-mesh and dispersions - ALL ranks must participate (collective MPI ops inside)
         call lo_generate_qmesh(qp,p,qgrid_harm,'fft',timereversal=.true.,headrankonly=.false.,mw=mw,mem=mem,verbosity=-1)
         call dr%generate(qp,fc,p,mw=mw,mem=mem,verbosity=-1)
 
-        ! Check for unstable modes
-        if ( dr%omega_min .lt. lo_freqtol ) then
-            ge%grid_AC%fph(ia,ic,:) = 123456789.0_flyt
-            ge%grid_AC%ah3(ia,ic,:) = 0.0_flyt
-            ge%grid_AC%ah4(ia,ic,:) = 0.0_flyt
-        else
-            ! Evaluate phonon free energy at each temperature
-            do it=1,ge%grid_AC%nt
-                ge%grid_AC%fph(ia,ic,it) = dr%phonon_free_energy(ge%grid_AC%temperature(it))
-            enddo
-            
-            ! Evaluate anharmonic contributions if available
-            if ( have_anharmonic ) then
-                call map%get_thirdorder_forceconstant(p,fct)
-                call map%get_fourthorder_forceconstant(p,fcf)
-                do it=1,ge%grid_AC%nt
-                    select type(qp); type is(lo_fft_mesh)
-                        call anharmonic_free_energy(p,fct,fcf,qp,dr,ge%grid_AC%temperature(it),f3,f4,mw,mem,verbosity=-1)
-                    end select
-                    ge%grid_AC%ah3(ia,ic,it) = f3
-                    ge%grid_AC%ah4(ia,ic,it) = f4
-                enddo
+        ! Only rank 0 stores the results and reports progress
+        if ( mw%r .eq. 0 ) then
+            ! Get static energy from polynomial fit to DFT energies
+            staticeval: block
+                real(flyt), dimension(2) :: scaled_ac
+                ! Scale coordinates to [0,1] range used in polynomial fit
+                scaled_ac(1) = (ge%grid_AC%a_values(ia) - ge%grid_AC%coord_shift(1)) * ge%grid_AC%coord_scale(1)
+                scaled_ac(2) = (ge%grid_AC%c_values(ic) - ge%grid_AC%coord_shift(2)) * ge%grid_AC%coord_scale(2)
+                ! Evaluate polynomial
+                ge%grid_AC%U(ia,ic,1) = ge%grid_AC%static_energy_poly%eval(scaled_ac, ge%grid_AC%static_energy_coeffs)
+            end block staticeval
+            ge%grid_AC%U(ia,ic,:) = ge%grid_AC%U(ia,ic,1)
+
+            ! Get delta U0 from interpolation (if available)
+            ge%grid_AC%U0(ia,ic,:) = 0.0_flyt
+
+            ! Check for unstable modes
+            if ( dr%omega_min .lt. -0.5_flyt ) then
+                ge%grid_AC%fph(ia,ic,:) = 123456789.0_flyt
+                ge%grid_AC%ah3(ia,ic,:) = 0.0_flyt
+                ge%grid_AC%ah4(ia,ic,:) = 0.0_flyt
             else
+                ! Evaluate phonon free energy at each temperature
+                do it=1,ge%grid_AC%nt
+                    ge%grid_AC%fph(ia,ic,it) = dr%phonon_free_energy(ge%grid_AC%temperature(it))
+                enddo
                 ge%grid_AC%ah3(ia,ic,:) = 0.0_flyt
                 ge%grid_AC%ah4(ia,ic,:) = 0.0_flyt
             endif
-        endif
 
-        if ( mw%talk .and. ipt .lt. npts ) then
-            call lo_progressbar(' ... a-c QHA free energy',ipt,npts,walltime()-t0)
+            if ( mw%talk .and. ipt .lt. npts ) then
+                call lo_progressbar(' ... a-c QHA free energy',ipt,npts,walltime()-t0)
+            endif
         endif
     enddo
     enddo
 
     if ( mw%talk ) call lo_progressbar(' ... a-c QHA free energy',npts,npts,walltime()-t0)
 
-    ! Collect results across MPI ranks
-    call mpi_allreduce(MPI_IN_PLACE,ge%grid_AC%U,  ge%grid_AC%na*ge%grid_AC%nc*ge%grid_AC%nt,MPI_DOUBLE_PRECISION,MPI_SUM,mw%comm,mw%error)
-    call mpi_allreduce(MPI_IN_PLACE,ge%grid_AC%U0, ge%grid_AC%na*ge%grid_AC%nc*ge%grid_AC%nt,MPI_DOUBLE_PRECISION,MPI_SUM,mw%comm,mw%error)
-    call mpi_allreduce(MPI_IN_PLACE,ge%grid_AC%fph,ge%grid_AC%na*ge%grid_AC%nc*ge%grid_AC%nt,MPI_DOUBLE_PRECISION,MPI_SUM,mw%comm,mw%error)
-    call mpi_allreduce(MPI_IN_PLACE,ge%grid_AC%ah3,ge%grid_AC%na*ge%grid_AC%nc*ge%grid_AC%nt,MPI_DOUBLE_PRECISION,MPI_SUM,mw%comm,mw%error)
-    call mpi_allreduce(MPI_IN_PLACE,ge%grid_AC%ah4,ge%grid_AC%na*ge%grid_AC%nc*ge%grid_AC%nt,MPI_DOUBLE_PRECISION,MPI_SUM,mw%comm,mw%error)
-
     ! Compute total free energy (including anharmonic)
     ge%grid_AC%Ftot = ge%grid_AC%U + ge%grid_AC%U0 + ge%grid_AC%fph + ge%grid_AC%ah3 + ge%grid_AC%ah4
 end subroutine
 
-!> Finalize a-c grid output with 4th order polynomial fitting
-subroutine ACfinalize(gr,gs,map,filename,qgrid,mw,mem)
+!> Finalize a-c grid output with polynomial fitting
+subroutine ACfinalize(gr,gs,map,filename,qgrid,polyorder,mw,mem)
     !> grid
     type(lo_gridenergy_ac), intent(inout) :: gr
     !> gridsim
@@ -1292,6 +1416,8 @@ subroutine ACfinalize(gr,gs,map,filename,qgrid,mw,mem)
     character(len=*), intent(in) :: filename
     !> q-grid
     integer, dimension(3), intent(in) :: qgrid
+    !> polynomial order
+    integer, intent(in) :: polyorder
     !> mpi helper
     type(lo_mpi_helper), intent(inout) :: mw
     !> memory tracker
@@ -1303,15 +1429,16 @@ subroutine ACfinalize(gr,gs,map,filename,qgrid,mw,mem)
     real(r8), dimension(:), allocatable :: F_vec, coeffs
     real(r8) :: a_norm, c_norm, a_mean, c_mean, a_scale, c_scale
     real(r8) :: a_opt, c_opt, F_opt
+    real(r8) :: dF_da, dF_dc, d2F_da2, d2F_dc2, d2F_dadc, det, da, dc
     integer :: ia, ic, it, k, l, npts, ncoeffs, u
-    integer :: ia_min, ic_min, pa, pc
+    integer :: pa, pc
 
-    ncoeffs = 25  ! 5x5 for 4th order polynomial in 2D
+    ncoeffs = (polyorder+1)*(polyorder+1)  ! Full tensor product polynomial
     npts = gr%na * gr%nc
 
     if ( mw%talk ) then
         write(*,*) ''
-        write(*,*) 'Fitting 4th order polynomial to free energy surface'
+        write(*,*) 'Fitting order ',polyorder,' polynomial to free energy surface'
 
         ! Normalize a and c for numerical stability
         a_mean = 0.5_r8*(minval(gr%a_values) + maxval(gr%a_values))
@@ -1325,7 +1452,7 @@ subroutine ACfinalize(gr,gs,map,filename,qgrid,mw,mem)
         allocate(F_vec(npts))
         allocate(coeffs(ncoeffs))
 
-        ! Build design matrix once
+        ! Build design matrix once (full tensor product: a^i * c^j for i,j = 0 to polyorder)
         l = 0
         do ia = 1, gr%na
         do ic = 1, gr%nc
@@ -1333,16 +1460,11 @@ subroutine ACfinalize(gr,gs,map,filename,qgrid,mw,mem)
             a_norm = (gr%a_values(ia) - a_mean) / a_scale
             c_norm = (gr%c_values(ic) - c_mean) / c_scale
             k = 0
-            do pa = 0, 4
-            do pc = 0, 4 - pa  ! Keep total order <= 4
+            do pa = 0, polyorder
+            do pc = 0, polyorder
                 k = k + 1
                 design_matrix(l, k) = (a_norm**pa) * (c_norm**pc)
             enddo
-            enddo
-            ! Fill remaining columns with zeros (if any)
-            do while (k < ncoeffs)
-                k = k + 1
-                design_matrix(l, k) = 0.0_r8
             enddo
         enddo
         enddo
@@ -1371,21 +1493,88 @@ subroutine ACfinalize(gr,gs,map,filename,qgrid,mw,mem)
             call lo_linear_least_squares(design_matrix, F_vec, coeffs)
             gr%poly_coeffs(:, it) = coeffs
 
-            ! Find minimum by grid search (simple approach)
+            ! Find minimum using Newton-Raphson on polynomial gradient
+            ! Start from grid minimum as initial guess
             F_opt = 1.0e10_r8
-            a_opt = gr%a_values(1)
-            c_opt = gr%c_values(1)
             do ia = 1, gr%na
             do ic = 1, gr%nc
                 if (gr%Ftot(ia, ic, it) .lt. F_opt) then
                     F_opt = gr%Ftot(ia, ic, it)
                     a_opt = gr%a_values(ia)
                     c_opt = gr%c_values(ic)
-                    ia_min = ia
-                    ic_min = ic
                 endif
             enddo
             enddo
+            
+            ! Convert to normalized coordinates
+            a_norm = (a_opt - a_mean) / a_scale
+            c_norm = (c_opt - c_mean) / c_scale
+            
+            ! Newton-Raphson iteration to find minimum (solve grad F = 0)
+            do l = 1, 50  ! max iterations
+                ! Compute gradient and Hessian of polynomial
+                ! F = sum_k coeffs(k) * a^pa(k) * c^pc(k)
+                ! dF/da = sum_k coeffs(k) * pa(k) * a^(pa(k)-1) * c^pc(k)
+                ! etc.
+                dF_da = 0.0_r8
+                dF_dc = 0.0_r8
+                d2F_da2 = 0.0_r8
+                d2F_dc2 = 0.0_r8
+                d2F_dadc = 0.0_r8
+                
+                k = 0
+                do pa = 0, polyorder
+                do pc = 0, polyorder
+                    k = k + 1
+                    ! First derivatives
+                    if (pa > 0) dF_da = dF_da + coeffs(k) * pa * (a_norm**(pa-1)) * (c_norm**pc)
+                    if (pc > 0) dF_dc = dF_dc + coeffs(k) * pc * (a_norm**pa) * (c_norm**(pc-1))
+                    ! Second derivatives
+                    if (pa > 1) d2F_da2 = d2F_da2 + coeffs(k) * pa * (pa-1) * (a_norm**(pa-2)) * (c_norm**pc)
+                    if (pc > 1) d2F_dc2 = d2F_dc2 + coeffs(k) * pc * (pc-1) * (a_norm**pa) * (c_norm**(pc-2))
+                    if (pa > 0 .and. pc > 0) d2F_dadc = d2F_dadc + coeffs(k) * pa * pc * (a_norm**(pa-1)) * (c_norm**(pc-1))
+                enddo
+                enddo
+                
+                ! Check convergence
+                if (abs(dF_da) < 1.0e-12_r8 .and. abs(dF_dc) < 1.0e-12_r8) exit
+                
+                ! Hessian determinant
+                det = d2F_da2 * d2F_dc2 - d2F_dadc * d2F_dadc
+                if (abs(det) < 1.0e-20_r8) exit  ! Singular Hessian
+                
+                ! Newton step: [a_new, c_new] = [a, c] - H^{-1} * grad
+                da = (d2F_dc2 * dF_da - d2F_dadc * dF_dc) / det
+                dc = (d2F_da2 * dF_dc - d2F_dadc * dF_da) / det
+                
+                ! Limit step size
+                if (abs(da) > 0.5_r8) da = sign(0.5_r8, da)
+                if (abs(dc) > 0.5_r8) dc = sign(0.5_r8, dc)
+                
+                a_norm = a_norm - da
+                c_norm = c_norm - dc
+                
+                ! Keep within bounds
+                if (a_norm < -1.0_r8) a_norm = -1.0_r8
+                if (a_norm >  1.0_r8) a_norm =  1.0_r8
+                if (c_norm < -1.0_r8) c_norm = -1.0_r8
+                if (c_norm >  1.0_r8) c_norm =  1.0_r8
+            enddo
+            
+            ! Convert back to physical coordinates
+            a_opt = a_norm * a_scale + a_mean
+            c_opt = c_norm * c_scale + c_mean
+            
+            ! Evaluate polynomial at minimum
+            F_opt = 0.0_r8
+            k = 0
+            do pa = 0, polyorder
+            do pc = 0, polyorder
+                k = k + 1
+                F_opt = F_opt + coeffs(k) * (a_norm**pa) * (c_norm**pc)
+            enddo
+            enddo
+            
             gr%a_min(it) = a_opt
             gr%c_min(it) = c_opt
             gr%F_min(it) = F_opt
@@ -1565,7 +1754,7 @@ subroutine evaluate_actgrid(ge,gs,map,qgrid_harm,qgrid_anharm,mw,mem,verbosity)
 end subroutine
 
 !> Finalize a-c-T grid output with polynomial fitting
-subroutine ACTfinalize(gr,gs,map,filename,qgrid,mw,mem)
+subroutine ACTfinalize(gr,gs,map,filename,qgrid,polyorder,mw,mem)
     !> grid
     type(lo_gridenergy_act), intent(inout) :: gr
     !> gridsim
@@ -1576,6 +1765,8 @@ subroutine ACTfinalize(gr,gs,map,filename,qgrid,mw,mem)
     character(len=*), intent(in) :: filename
     !> q-grid
     integer, dimension(3), intent(in) :: qgrid
+    !> polynomial order
+    integer, intent(in) :: polyorder
     !> mpi helper
     type(lo_mpi_helper), intent(inout) :: mw
     !> memory tracker
@@ -1589,12 +1780,12 @@ subroutine ACTfinalize(gr,gs,map,filename,qgrid,mw,mem)
     integer :: ia, ic, it, k, l, npts, ncoeffs, u
     integer :: ia_min, ic_min, pa, pc
 
-    ncoeffs = 25  ! 5x5 for 4th order polynomial in 2D
+    ncoeffs = (polyorder+1)*(polyorder+1)  ! Full tensor product polynomial
     npts = gr%na * gr%nc
 
     if ( mw%talk ) then
         write(*,*) ''
-        write(*,*) 'Fitting 4th order polynomial to free energy surface (a-c-T)'
+        write(*,*) 'Fitting order ',polyorder,' polynomial to free energy surface (a-c-T)'
 
         ! Normalize a and c for numerical stability
         a_mean = 0.5_r8*(minval(gr%a_values) + maxval(gr%a_values))
@@ -1608,7 +1799,7 @@ subroutine ACTfinalize(gr,gs,map,filename,qgrid,mw,mem)
         allocate(F_vec(npts))
         allocate(coeffs(ncoeffs))
 
-        ! Build design matrix once
+        ! Build design matrix once (full tensor product)
         l = 0
         do ia = 1, gr%na
         do ic = 1, gr%nc
@@ -1616,15 +1807,11 @@ subroutine ACTfinalize(gr,gs,map,filename,qgrid,mw,mem)
             a_norm = (gr%a_values(ia) - a_mean) / a_scale
             c_norm = (gr%c_values(ic) - c_mean) / c_scale
             k = 0
-            do pa = 0, 4
-            do pc = 0, 4 - pa
+            do pa = 0, polyorder
+            do pc = 0, polyorder
                 k = k + 1
                 design_matrix(l, k) = (a_norm**pa) * (c_norm**pc)
             enddo
-            enddo
-            do while (k < ncoeffs)
-                k = k + 1
-                design_matrix(l, k) = 0.0_r8
             enddo
         enddo
         enddo
@@ -1822,6 +2009,172 @@ subroutine phonon_free_energy_for_single_point(gs,map,depvar,qgrid,temperature,m
     call dr%generate(qp,fc,p,mw=mw,mem=mem,verbosity=-1)
     ! and the free energy
     fph=dr%phonon_free_energy(temperature)
+end subroutine
+
+!> Dump force constants and structures for each a/c grid point
+subroutine dump_ac_forceconstants(gr,gs,map,filename,mw,mem)
+    !> grid
+    type(lo_gridenergy_ac), intent(in) :: gr
+    !> gridsim
+    type(lo_gridsim), intent(inout) :: gs
+    !> forcemap
+    type(lo_forcemap), intent(inout) :: map
+    !> output filename
+    character(len=*), intent(in) :: filename
+    !> mpi helper
+    type(lo_mpi_helper), intent(inout) :: mw
+    !> memory tracker
+    type(lo_mem_helper), intent(inout) :: mem
+
+    type(lo_hdf5_helper) :: h5
+    type(lo_crystalstructure) :: p
+    type(lo_forceconstant_secondorder) :: fc
+    real(flyt), dimension(:,:), allocatable :: pairconstraints
+    real(flyt), dimension(2) :: depvar
+    real(r8), dimension(:,:,:,:), allocatable :: fc_flat  ! (na, nc, npairs, 9)
+    real(r8), dimension(:,:,:,:), allocatable :: latmat   ! (na, nc, 3, 3) - lattice vectors
+    real(r8), dimension(:,:,:,:), allocatable :: positions ! (na, nc, natom, 3) - fractional coords
+    real(r8), dimension(:,:), allocatable :: pair_r0    ! (npairs, 3) - pair vectors for reference
+    integer, dimension(:,:), allocatable :: pair_atoms  ! (npairs, 2) - atom indices for pairs
+    integer :: ia, ic, nconstr, npairs, i, j, u, ip, iat, pctr
+    character(len=1000) :: dumstr
+
+    write(*,*) ''
+    write(*,*) 'Dumping force constants to ', trim(filename)
+
+    ! First pass: get structure at center point to determine npairs
+    depvar(gs%info%dim_a) = gr%a_values(gr%na/2 + 1)
+    depvar(gs%info%dim_c) = gr%c_values(gr%nc/2 + 1)
+    call gs%structure%interpolate(depvar, p, -1)
+    call p%classify('wedge', timereversal=.true.)
+    call megafit_secondorder_constraints(map, p, pairconstraints, nconstr, .true., .true., .true.)
+    if (nconstr .gt. 0) then
+        call gs%eval(map, depvar, pairconstraints)
+    else
+        call gs%eval(map, depvar)
+    endif
+    call map%get_secondorder_forceconstant(p, fc, mem, -1)
+    
+    ! Count total pairs across all atoms
+    npairs = 0
+    do iat = 1, fc%na
+        npairs = npairs + fc%atom(iat)%n
+    enddo
+
+    write(*,*) '  Number of atoms:      ', p%na
+    write(*,*) '  Number of FC pairs:   ', npairs
+    write(*,*) '  Grid size:            ', gr%na, ' x ', gr%nc
+
+    ! Allocate storage
+    allocate(fc_flat(gr%na, gr%nc, npairs, 9))
+    allocate(latmat(gr%na, gr%nc, 3, 3))
+    allocate(positions(gr%na, gr%nc, p%na, 3))
+    allocate(pair_r0(npairs, 3))
+    allocate(pair_atoms(npairs, 2))
+
+    fc_flat = 0.0_r8
+    latmat = 0.0_r8
+    positions = 0.0_r8
+
+    ! Store pair info from reference
+    pctr = 0
+    do iat = 1, fc%na
+        do ip = 1, fc%atom(iat)%n
+            pctr = pctr + 1
+            pair_atoms(pctr, 1) = fc%atom(iat)%pair(ip)%i1
+            pair_atoms(pctr, 2) = fc%atom(iat)%pair(ip)%i2
+            pair_r0(pctr, :) = fc%atom(iat)%pair(ip)%r * lo_bohr_to_A  ! Convert to Angstrom
+        enddo
+    enddo
+
+    ! Loop over grid and collect force constants
+    do ia = 1, gr%na
+    do ic = 1, gr%nc
+        depvar(gs%info%dim_a) = gr%a_values(ia)
+        depvar(gs%info%dim_c) = gr%c_values(ic)
+
+        ! Get structure at this a,c
+        call gs%structure%interpolate(depvar, p, -1)
+        call p%classify('wedge', timereversal=.true.)
+
+        ! Store lattice vectors (in Angstrom)
+        latmat(ia, ic, :, :) = p%latticevectors * lo_bohr_to_A
+
+        ! Store positions (fractional) - use p%r which holds fractional coords
+        do i = 1, p%na
+            positions(ia, ic, i, :) = p%r(:, i)
+        enddo
+
+        ! Get force constants
+        call megafit_secondorder_constraints(map, p, pairconstraints, nconstr, .true., .true., .true.)
+        if (nconstr .gt. 0) then
+            call gs%eval(map, depvar, pairconstraints)
+        else
+            call gs%eval(map, depvar)
+        endif
+        call map%get_secondorder_forceconstant(p, fc, mem, -1)
+
+        ! Flatten 3x3 FC matrices to 9-vectors (in eV/Ang^2)
+        pctr = 0
+        do iat = 1, fc%na
+            do ip = 1, fc%atom(iat)%n
+                pctr = pctr + 1
+                if (pctr .le. npairs) then
+                    fc_flat(ia, ic, pctr, :) = reshape(fc%atom(iat)%pair(ip)%m * &
+                        lo_Hartree_to_eV / (lo_bohr_to_A**2), [9])
+                endif
+            enddo
+        enddo
+    enddo
+    enddo
+
+    ! Write to HDF5
+    call h5%init(__FILE__, __LINE__)
+    call h5%open_file('write', trim(filename))
+    call h5%open_group('write', 'forceconstants_grid')
+
+    ! Store grid axes
+    call h5%store_data(gr%a_values, h5%group_id, 'a_values', enhet='Angstrom')
+    call h5%store_data(gr%c_values, h5%group_id, 'c_values', enhet='Angstrom')
+    call h5%store_data(gr%temperature, h5%group_id, 'temperatures', enhet='K')
+
+    ! Store force constants (na, nc, npairs, 9) in eV/Ang^2
+    call h5%store_data(fc_flat, h5%group_id, 'forceconstants', enhet='eV/Ang^2')
+
+    ! Store lattice vectors for each a,c point
+    call h5%store_data(latmat, h5%group_id, 'lattice_vectors', enhet='Angstrom')
+
+    ! Store atomic positions (fractional)
+    call h5%store_data(positions, h5%group_id, 'fractional_positions', enhet='')
+
+    ! Store pair information (reference structure)
+    call h5%store_data(pair_atoms, h5%group_id, 'pair_atom_indices', enhet='')
+    call h5%store_data(pair_r0, h5%group_id, 'pair_vectors_reference', enhet='Angstrom')
+
+    call h5%close_group()
+    call h5%close_file()
+
+    ! Also write POSCAR files for each grid point
+    write(*,*) '  Writing POSCAR files...'
+    do ia = 1, gr%na
+    do ic = 1, gr%nc
+        depvar(gs%info%dim_a) = gr%a_values(ia)
+        depvar(gs%info%dim_c) = gr%c_values(ic)
+        call gs%structure%interpolate(depvar, p, -1)
+        
+        ! Write POSCAR for this grid point
+        write(dumstr, '(A,I3.3,A,I3.3,A)') 'gridpoint_a', ia, '_c', ic, '/infile.ucposcar'
+        call execute_command_line('mkdir -p gridpoint_a'//tochar(ia)//'_c'//tochar(ic))
+        call p%writetofile(trim(dumstr), 1)  ! 1 = VASP format
+        
+        ! Also write forceconstant file
+        write(dumstr, '(A,I3.3,A,I3.3,A)') 'gridpoint_a', ia, '_c', ic, '/infile.forceconstant'
+        call fc%writetofile(p, trim(dumstr))
+    enddo
+    enddo
+
+    deallocate(fc_flat, latmat, positions, pair_r0, pair_atoms)
+    write(*,*) '  Done dumping force constants'
 end subroutine
 
 end module

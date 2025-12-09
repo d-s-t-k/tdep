@@ -29,6 +29,7 @@ subroutine read_simulations_from_file(gs,filename,mw,mem,verbosity)
     readsims: block
         integer, parameter :: maxfilenamelength=5000
         real(r8), dimension(:), allocatable :: d1
+        real(r8) :: dummy_energy
         character(len=maxfilenamelength), dimension(:), allocatable :: sfn
         character(len=1) :: dum
         integer :: u,i,ndim,nfiles
@@ -47,7 +48,12 @@ subroutine read_simulations_from_file(gs,filename,mw,mem,verbosity)
                 allocate(d1(ndim))
                 allocate(sfn(nfiles))
                 do i=1,nfiles
-                    read(u,*) d1,sfn(i)
+                    ! Handle both formats: with and without static energy
+                    if ( gs%have_static_energy ) then
+                        read(u,*) d1, dummy_energy, sfn(i)
+                    else
+                        read(u,*) d1,sfn(i)
+                    endif
                 enddo
             close(u)
             ! keep track of the total number of simulations

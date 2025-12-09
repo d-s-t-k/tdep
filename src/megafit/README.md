@@ -1,52 +1,176 @@
-# MEGAFIT - Thermodynamic Property Interpolation
+# MEGAFIT
 
-## Overview
+## Short description
 
-MEGAFIT is a program for computing thermodynamic properties (free energies) by interpolating force constants across parameter grids. It enables quasi-harmonic approximation (QHA) calculations with flexible parameter spaces including volume, temperature, and lattice parameters (a, c).
+Fit force constants and thermodynamic properties across multi-dimensional parameter grids. MEGAFIT enables quasi-harmonic approximation (QHA) calculations with flexible parameter spaces including volume (V), temperature (T), and anisotropic lattice parameters (a, c). Force constants are interpolated using polynomial fitting, allowing computation of free energies at arbitrary points within the parameter space.
 
-## Prerequisites
+## Command line options
 
-Before running `megafit`, you need:
+### Force constant cutoffs
 
-1. **Computed force constants at grid points**: Run DFT/MD simulations at various parameter combinations and extract force constants using `extract_forceconstants`
-2. **Fitted polynomial coefficients**: Run `fitmultipole` to fit the force constants across the parameter grid
-3. **Input files** (described below)
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--secondorder_cutoff`, `-rc2` | `5.0` | Cutoff for the second order force constants (Å) |
+| `--thirdorder_cutoff`, `-rc3` | `-1` | Cutoff for the third order force constants (Å). Negative means disabled. |
+| `--fourthorder_cutoff`, `-rc4` | `-1` | Cutoff for the fourth order force constants (Å). Negative means disabled. |
+| `--magnetic_pair_cutoff`, `-mc2` | `-1.0` | Cutoff for the pair magnetic interactions (Å) |
 
-## Input Files
+### Polar materials
 
-### 1. `infile.simulations` (required)
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--polar` | `.false.` | Add dipole-dipole corrections for polar materials. Requires `infile.lotosplitting`. |
+| `--polarcorrectiontype`, `-pc` | `3` | Type of polar correction to use. Choices: `1`, `2`, `3` |
 
-Defines the parameter grid, equation of state, and references simulation data.
+### Fitting options
 
-**Full format:**
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--order`, `-o` | `2` | Order of the polynomials for the grid fitting procedure |
+| `--pairfittype`, `-pf` | `1` | Method for fitting second order. `1` = global polynomial, `2` = locally adaptive polynomials |
+| `--distancescale`, `-ds` | `0.1` | Scale factor for distances in the fitting procedure |
+| `--temperaturescale`, `-ts` | `-1` | Scale factor for temperature. Negative uses automatic scaling. |
+
+### Brillouin zone integration
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--harmonic_qpoint_grid`, `-qgh` | `26 26 26` | q-mesh density for harmonic (phonon) free energy calculations |
+| `--anharmonic_qpoint_grid`, `-qga` | `10 10 10` | q-mesh density for anharmonic free energy calculations |
+
+### Evaluation options
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--evalenergy` | `.false.` | Evaluate the free energy at points specified in `infile.evalpoints` |
+| `--quasiharmonic` | `.false.` | In addition to the full anharmonic free energy, evaluate the quasiharmonic free energy for reference |
+
+### General options
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--help`, `-h` | | Print help message |
+| `--version`, `-v` | | Print version |
+
+## Examples
+
+```bash
+# Basic QHA with 5 Å second-order cutoff
+megafit -rc2 5.1
+
+# Include third-order force constants
+megafit -rc2 4.5 -rc3 3.21
+
+# Polar material with dipole corrections
+megafit -rc2 5.0 --polar
+
+# Higher polynomial order for smoother interpolation
+megafit -rc2 5.0 -o 3
+
+# Finer q-mesh for converged phonon free energy
+megafit -rc2 5.0 -qgh 30 30 30
+```
+
+## What does this code produce?
+
+MEGAFIT interpolates force constants across a parameter grid (volume, temperature, lattice parameters) and computes thermodynamic quantities including:
+
+- **Phonon free energy** $F_\text{ph}(x, T)$
+- **Anharmonic corrections** from third and fourth order force constants
+- **Total Helmholtz free energy** $F(x, T) = U(x) + \Delta U_0(x) + F_\text{ph}(x, T)$
+- **Equilibrium parameters** (volume, lattice constants) as functions of temperature
+
+The program supports several evaluation modes:
+
+| Mode | Grid type | Description |
+|------|-----------|-------------|
+| 1 | Generic | User-defined grid evaluation |
+| 3 | V-T | Volume-temperature grid with isobars |
+| 4 | a-c | Lattice parameter grid (hexagonal/tetragonal) |
+| 5 | a-c-T | Lattice parameters with temperature-dependent force constants |
+
+## Theory
+
+### Free energy components
+
+The Helmholtz free energy is computed as:
+
+$$F(x, T) = U(x) + \Delta U_0(x) + F_\text{ph}(x, T) + F_\text{ah}(x, T)$$
+
+where:
+- $U(x)$ = Static internal energy from equation of state
+- $\Delta U_0(x)$ = Correction to static energy from force constant fitting
+- $F_\text{ph}(x, T)$ = Phonon (harmonic) free energy
+- $F_\text{ah}(x, T)$ = Anharmonic free energy corrections (if third/fourth order FCs provided)
+
+### Phonon free energy
+
+The phonon free energy per atom is:
+
+$$F_\text{ph} = \frac{1}{N_a} \sum_{\mathbf{q},\nu} w_{\mathbf{q}} \left[ \frac{\hbar\omega_{\mathbf{q}\nu}}{2} + k_B T \ln\left(1 - e^{-\hbar\omega_{\mathbf{q}\nu}/k_B T}\right) \right]$$
+
+where:
+- $\omega_{\mathbf{q}\nu}$ = Phonon frequency at wavevector $\mathbf{q}$, branch $\nu$
+- $w_{\mathbf{q}}$ = Integration weight
+- $N_a$ = Number of atoms
+
+### Polynomial interpolation
+
+Force constants are interpolated across the parameter grid using polynomials:
+
+$$\Phi_{ij}^{\alpha\beta}(x) = \sum_{n} C_{ij,n}^{\alpha\beta} P_n(x)$$
+
+where $P_n(x)$ are polynomial basis functions and $x$ represents the grid coordinates (V, T, a, c, etc.).
+
+For a-c grids, the free energy surface is fitted to a 4th order polynomial to find equilibrium:
+
+$$F(a, c) = \sum_{i+j \leq 4} C_{ij} \tilde{a}^i \tilde{c}^j$$
+
+## Input files
+
+### Required files
+
+| File | Description |
+|------|-------------|
+| `infile.ucposcar` | Unit cell structure in VASP POSCAR format |
+| `infile.ssposcar` | Supercell structure in VASP POSCAR format |
+| `infile.forceconstant` | Reference second-order force constants |
+| `infile.simulations` | Parameter grid definition and paths to simulation data |
+| `infile.meta` | Polynomial fit metadata (from `fitmultipole`) |
+
+### Optional files
+
+| File | Description |
+|------|-------------|
+| `infile.evalpoints` | Points at which to evaluate free energy |
+| `infile.lotosplitting` | Born charges and dielectric tensor (polar materials) |
+| `infile.forceconstant_thirdorder` | Third-order force constants |
+| `infile.forceconstant_fourthorder` | Fourth-order force constants |
+
+### `infile.simulations` format
+
+This file defines the parameter grid and references the simulation data:
+
 ```
 ndim                        # Number of dimensions (1, 2, or 3)
 nsim                        # Number of simulation points
-varnames                    # Variable names (V, T, eta, a, c) space-separated
-order_per_dim               # Polynomial order per dimension (e.g., "3 3" for 2D)
+varnames                    # Variable names: V, T, a, c (space-separated)
+order_per_dim               # Polynomial order per dimension
 eosname                     # Equation of state: Birch, Vinet, 2D-Bi, or null
-eos_params                  # EOS parameters (see below)
-coord1 /path/to/sim1/       # Grid coordinates and path to simulation HDF5 file
-coord2 /path/to/sim2/
+eos_params                  # EOS parameters (if using an EOS)
+coord1 [static_E] /path/    # Grid coordinates, optional static energy (eV/atom), and path
+coord2 [static_E] /path/
 ...
 ```
 
-**Equation of State (EOS) options:**
-- `Birch`: Birch-Murnaghan EOS (4 parameters: E0, V0, B0, B0')
-- `Vinet`: Vinet EOS (4 parameters: E0, V0, B0, B0')
-- `2D-Bi`: 2D Birch-Murnaghan (9 parameters)
-- `null`: No EOS (static energy set to zero)
-
-The EOS provides the **static internal energy** U(V) or U(V,eta).
-
-**Example for volume-only QHA (1D grid):**
+**Example for volume-only QHA (1D):**
 ```
-1                           # Number of dimensions
-5                           # Number of simulations
-V                           # Dimension name (V = volume)
-3                           # Polynomial order for V
-Birch                       # Birch-Murnaghan EOS
--5.5 10.0 150.0 4.0         # E0 (eV), V0 (Å³), B0 (GPa), B0'
+1
+5
+V
+3
+Birch
+-5.5 10.0 150.0 4.0
 9.5  /path/to/sim1/outfile.grid_simulation.hdf5
 9.8  /path/to/sim2/outfile.grid_simulation.hdf5
 10.0 /path/to/sim3/outfile.grid_simulation.hdf5
@@ -54,346 +178,182 @@ Birch                       # Birch-Murnaghan EOS
 10.5 /path/to/sim5/outfile.grid_simulation.hdf5
 ```
 
-**Example for a-c lattice parameter grid (2D grid):**
+**Example for a-c lattice parameter grid (2D) with static energies:**
+
+For a-c grids with `eosname=null`, the static 0K DFT energy must be provided for each grid point.
+The format includes an additional column for static energy in eV/atom:
+
 ```
-2                           # Number of dimensions  
-9                           # Number of simulations
-a c                         # Dimension names (lattice parameters in Angstrom)
-3 3                         # Polynomial order for a, c
-null                        # No EOS (use interpolated energy)
-2.90 4.60 /path/to/sim_a1_c1/outfile.grid_simulation.hdf5
-2.90 4.65 /path/to/sim_a1_c2/outfile.grid_simulation.hdf5
-2.90 4.70 /path/to/sim_a1_c3/outfile.grid_simulation.hdf5
-2.95 4.60 /path/to/sim_a2_c1/outfile.grid_simulation.hdf5
+2
+9
+a c
+4 4
+null
+2.90 4.60 -127.456 /path/to/sim_a1_c1/outfile.sim.hdf5
+2.90 4.65 -127.389 /path/to/sim_a1_c2/outfile.sim.hdf5
+2.90 4.70 -127.312 /path/to/sim_a1_c3/outfile.sim.hdf5
+2.95 4.60 -127.501 /path/to/sim_a2_c1/outfile.sim.hdf5
 ...
 ```
 
-**Example for a-c-T grid with T-dependent FCs (3D grid):**
-```
-3                           # Number of dimensions  
-27                          # Number of simulations (3×3×3)
-a c T                       # Dimension names
-3 3 2                       # Polynomial order for a, c, T
-null                        # No EOS
-2.90 4.60 100 /path/to/sim_a1_c1_T1/outfile.grid_simulation.hdf5
-2.90 4.60 300 /path/to/sim_a1_c1_T2/outfile.grid_simulation.hdf5
-2.90 4.60 600 /path/to/sim_a1_c1_T3/outfile.grid_simulation.hdf5
-2.90 4.65 100 /path/to/sim_a1_c2_T1/outfile.grid_simulation.hdf5
-...
-```
+The static energy should be the total DFT energy of the relaxed primitive cell at each (a,c) point,
+converted to eV per atom. For Quantum ESPRESSO, this is the "total energy" from the `ev/` calculation.
+For VASP, this is the "energy without entropy" (E0) from OUTCAR.
 
-### 2. `infile.evalpoints` (required)
+### `infile.evalpoints` format
 
-Defines where to evaluate the interpolated free energy.
+Defines where to evaluate the interpolated quantities:
 
 **For volume-only QHA (evalmode=1):**
 ```
-1                    # evalmode (1 = generic grid definition)
-nv lin               # Number of volume points, spacing type (lin/den)
-Vmin Vmax            # Volume range in Å³/atom
+1                    # evalmode
+nv lin               # Number of volume points, spacing type
+Vmin Vmax            # Volume range (Å³/atom)
 0                    # Pressure step (GPa), 0 = no pressure output
 ```
 
 **For a-c lattice parameter QHA (evalmode=4):**
-FCs interpolated in (a,c), free energy evaluated at many temperatures.
 ```
-4                    # evalmode (4 = a-c lattice parameter grid)
-na lin               # Number of a values, spacing type
-amin amax            # a range in Angstrom
-nc lin               # Number of c values, spacing type
-cmin cmax            # c range in Angstrom
+4                    # evalmode
+na lin               # Number of a values, spacing
+amin amax            # a range (Å)
+nc lin               # Number of c values, spacing
+cmin cmax            # c range (Å)
 ```
 
 **For a-c-T grid with T-dependent FCs (evalmode=5):**
-FCs interpolated in (a,c,T), free energy evaluated at each (a,c,T) point.
 ```
-5                    # evalmode (5 = a-c-T grid with T-dependent FCs)
-na lin               # Number of a values, spacing type
-amin amax            # a range in Angstrom
-nc lin               # Number of c values, spacing type
-cmin cmax            # c range in Angstrom
-nt lin               # Number of temperature values, spacing type
-Tmin Tmax            # Temperature range in K
-```
-
-**For V-T grid (evalmode=3):**
-```
-3                    # evalmode (3 = V-T grid with adaptive volume)
-nt lin               # Number of temperature points, spacing type
-Tmin Tmax            # Temperature range in K
-nv lin               # Number of volume points, spacing type
-Pstep                # Pressure step in GPa
+5                    # evalmode
+na lin               # Number of a values, spacing
+amin amax            # a range (Å)
+nc lin               # Number of c values, spacing
+cmin cmax            # c range (Å)
+nt lin               # Number of T values, spacing
+Tmin Tmax            # Temperature range (K)
 ```
 
-### 3. `infile.ucposcar` (required)
-
-Reference crystal structure in VASP POSCAR format.
-
-### 4. `infile.forceconstant` (required)
-
-Reference second-order force constants (from `extract_forceconstants`).
-
-### 5. `infile.meta` (required)
-
-Metadata file containing polynomial fit coefficients (from `fitmultipole`).
-
-### 6. `infile.forces` (optional)
-
-Reference forces for higher-order corrections.
-
-### 7. `infile.lotosplitting` (optional)
-
-LO-TO splitting data for polar materials.
-
-## Command Line Options
-
-```bash
-megafit [options]
-```
-
-| Option | Description | Default |
-|--------|-------------|---------|
-| `--qmesh_density` | Q-mesh density for harmonic calculations | 26 26 26 |
-| `--readforcemap` | Read forcemap from file | false |
-| `--dumpgrid` | Dump force constants at all grid points | false |
-| `--help`, `-h` | Show help message | |
-
-## Usage Examples
-
-### Example 1: Volume-only QHA (isotropic materials)
-
-1. **Run DFT calculations** at 5+ volumes (e.g., -4%, -2%, 0%, +2%, +4%)
-
-2. **Extract force constants** for each volume:
-   ```bash
-   cd sim_V1/ && extract_forceconstants && cd ..
-   # repeat for each volume
-   ```
-
-3. **Create `infile.simulations`**:
-   ```
-   1
-   V
-   5
-   9.5  ./sim_V1/
-   9.8  ./sim_V2/
-   10.0 ./sim_V3/
-   10.2 ./sim_V4/
-   10.5 ./sim_V5/
-   ```
-
-4. **Run fitmultipole** to fit force constants:
-   ```bash
-   fitmultipole
-   ```
-
-5. **Create `infile.evalpoints`**:
-   ```
-   1
-   50 lin
-   9.0 11.0
-   0
-   ```
-
-6. **Run megafit**:
-   ```bash
-   megafit --qmesh_density 30 30 30
-   ```
-
-### Example 2: a-c Lattice Parameter QHA (hexagonal/tetragonal)
-
-1. **Run DFT calculations** on a grid of (a, c) values:
-   ```
-   (a1,c1) (a1,c2) (a1,c3)
-   (a2,c1) (a2,c2) (a2,c3)
-   (a3,c1) (a3,c2) (a3,c3)
-   ```
-
-2. **Extract force constants** for each (a,c) point
-
-3. **Create `infile.simulations`**:
-   ```
-   2
-   a c
-   9
-   2.90 4.60 ./sim_a1_c1/
-   2.90 4.65 ./sim_a1_c2/
-   2.90 4.70 ./sim_a1_c3/
-   2.95 4.60 ./sim_a2_c1/
-   2.95 4.65 ./sim_a2_c2/
-   2.95 4.70 ./sim_a2_c3/
-   3.00 4.60 ./sim_a3_c1/
-   3.00 4.65 ./sim_a3_c2/
-   3.00 4.70 ./sim_a3_c3/
-   ```
-
-4. **Run fitmultipole** to fit force constants
-
-5. **Create `infile.evalpoints`**:
-   ```
-   4
-   25 lin
-   2.85 3.05
-   25 lin
-   4.55 4.75
-   ```
-
-6. **Run megafit**:
-   ```bash
-   megafit --qmesh_density 30 30 30
-   ```
-
-### Example 3: V-T Grid (temperature-dependent volumes)
-
-1. **Run MD calculations** at multiple (V,T) combinations
-
-2. **Create `infile.simulations`**:
-   ```
-   2
-   V T
-   20
-   9.5 100 ./sim_V1_T1/
-   9.5 300 ./sim_V1_T2/
-   ...
-   ```
-
-3. **Create `infile.evalpoints`**:
-   ```
-   1
-   100 lin
-   10 2000
-   50 lin
-   9.0 11.0
-   0.5
-   ```
-
-4. **Run megafit**:
-   ```bash
-   megafit --qmesh_density 30 30 30
-   ```
-
-## Output Files
+## Output files
 
 ### `outfile.interpolated_free_energy.hdf5`
 
-HDF5 file containing:
+HDF5 file containing all computed thermodynamic quantities. The structure depends on the evaluation mode:
 
 **For volume QHA (`grid_QHA` group):**
-- `volumes`: Volume axis (Å³/atom)
-- `temperatures`: Temperature axis (K)
-- `static_internal_energy`: U(V) from EOS (eV/atom)
-- `delta_U0`: Correction to static energy (eV/atom)
-- `phonon_free_energy`: F_ph(V,T) (eV/atom)
-- `Helmholtz_free_energy`: F_total = U + ΔU₀ + F_ph (eV/atom)
+- `volumes` (Å³/atom)
+- `temperatures` (K)
+- `static_internal_energy` U(V) (eV/atom)
+- `delta_U0` ΔU₀(V) (eV/atom)
+- `phonon_free_energy` F_ph(V,T) (eV/atom)
+- `Helmholtz_free_energy` F_total (eV/atom)
 
 **For a-c QHA (`grid_ac_QHA` group):**
-- `a_values`: a lattice parameter axis (Å)
-- `c_values`: c lattice parameter axis (Å)
-- `temperatures`: Temperature axis (K)
-- `static_internal_energy`: U(a,c) (eV/atom)
-- `phonon_free_energy`: F_ph(a,c,T) (eV/atom)
-- `anharmonic_free_energy_3rd`: F_ah3(a,c,T) (eV/atom)
-- `anharmonic_free_energy_4th`: F_ah4(a,c,T) (eV/atom)
-- `Helmholtz_free_energy`: F_total(a,c,T) (eV/atom)
-- `a_equilibrium`: Equilibrium a(T) (Å)
-- `c_equilibrium`: Equilibrium c(T) (Å)
-- `F_equilibrium`: Minimum F at each T (eV/atom)
-- `polynomial_coefficients`: 4th order fit coefficients
+- `a_values`, `c_values` (Å)
+- `temperatures` (K)
+- `static_internal_energy` U(a,c) (eV/atom)
+- `phonon_free_energy` F_ph(a,c,T) (eV/atom)
+- `anharmonic_free_energy_3rd` (eV/atom)
+- `anharmonic_free_energy_4th` (eV/atom)
+- `Helmholtz_free_energy` F(a,c,T) (eV/atom)
+- `a_equilibrium`, `c_equilibrium` (Å) - equilibrium vs T
+- `F_equilibrium` (eV/atom) - minimum F at each T
 
-**For a-c-T with T-dependent FCs (`grid_act` group):**
-- `a_values`: a lattice parameter axis (Å)
-- `c_values`: c lattice parameter axis (Å)
-- `temperatures`: Temperature axis (K)
-- `static_internal_energy`: U(a,c,T) (eV/atom)
-- `phonon_free_energy`: F_ph(a,c,T) (eV/atom)
-- `anharmonic_free_energy_3rd`: F_ah3(a,c,T) (eV/atom)
-- `anharmonic_free_energy_4th`: F_ah4(a,c,T) (eV/atom)
-- `Helmholtz_free_energy`: F_total(a,c,T) (eV/atom)
-- `a_equilibrium`: Equilibrium a(T) (Å)
-- `c_equilibrium`: Equilibrium c(T) (Å)
-- `F_equilibrium`: Minimum F at each T (eV/atom)
+### `outfile.ac_equilibrium.dat` / `outfile.act_equilibrium.dat`
 
-### `outfile.ac_equilibrium.dat` (a-c grid)
-### `outfile.act_equilibrium.dat` (a-c-T grid)
+Plain text file with equilibrium lattice parameters versus temperature:
 
-Plain text file with equilibrium lattice parameters vs temperature:
 ```
-# Temperature (K)    a_eq (Angstrom)    c_eq (Angstrom)    F_min (eV/atom)
-1.000000E+00         2.950000E+00       4.650000E+00       -5.123456E+00
-2.020202E+01         2.951234E+00       4.651234E+00       -5.122345E+00
+# Temperature (K)    a_eq (Å)    c_eq (Å)    F_min (eV/atom)
+1.000000E+00         2.950000E+00    4.650000E+00    -5.123456E+00
+1.000000E+02         2.951234E+00    4.651234E+00    -5.122345E+00
 ...
 ```
 
-## Theory
+## Workflow
 
-### Free Energy Components
+### Step 1: Generate simulation data
 
-The Helmholtz free energy is computed as:
+Run DFT/MD simulations at multiple points on the parameter grid:
 
-$$
-F(x, T) = U(x) + \Delta U_0(x) + F_{ph}(x, T)
-$$
+```bash
+# For each grid point
+cd sim_point_1/
+# ... run simulation ...
+extract_forceconstants -rc2 5.0
+pack_simulation --output_format 1
+cd ..
+```
 
-where:
-- $U(x)$ = Static internal energy from equation of state
-- $\Delta U_0(x)$ = Correction to static energy from force constant fitting
-- $F_{ph}(x, T)$ = Phonon free energy from quasi-harmonic approximation
+### Step 2: Fit force constants across the grid
 
-### Phonon Free Energy
+```bash
+fitmultipole
+```
 
-The phonon free energy per atom is:
+This produces `infile.meta` with polynomial coefficients.
 
-$$
-F_{ph} = \frac{1}{N_a} \sum_{\mathbf{q},\nu} w_{\mathbf{q}} \left[ \frac{\hbar\omega_{\mathbf{q}\nu}}{2} + k_B T \ln\left(1 - e^{-\hbar\omega_{\mathbf{q}\nu}/k_B T}\right) \right]
-$$
+### Step 3: Run megafit
 
-where:
-- $\omega_{\mathbf{q}\nu}$ = Phonon frequency at wavevector $\mathbf{q}$, branch $\nu$
-- $w_{\mathbf{q}}$ = Integration weight
-- $N_a$ = Number of atoms
+```bash
+megafit -rc2 5.0 -qgh 30 30 30
+```
 
-### 4th Order Polynomial Fitting (a-c grid)
+### Step 4: Analyze output
 
-For a-c grids, the free energy surface is fitted to a 4th order polynomial:
+Use the HDF5 output for further analysis:
 
-$$
-F(a, c) = \sum_{i+j \leq 4} C_{ij} \tilde{a}^i \tilde{c}^j
-$$
+```python
+import h5py
+import numpy as np
 
-where $\tilde{a}$ and $\tilde{c}$ are normalized coordinates for numerical stability.
+with h5py.File('outfile.interpolated_free_energy.hdf5', 'r') as f:
+    T = f['grid_ac_QHA/temperatures'][:]
+    a_eq = f['grid_ac_QHA/a_equilibrium'][:]
+    c_eq = f['grid_ac_QHA/c_equilibrium'][:]
+    
+    # Thermal expansion
+    alpha_a = np.gradient(a_eq, T) / a_eq
+    alpha_c = np.gradient(c_eq, T) / c_eq
+```
 
-The equilibrium lattice parameters are found by minimizing this surface.
+## Tips and best practices
 
-## Tips and Best Practices
+1. **Grid density**: Use at least 5 points per dimension for reliable polynomial interpolation
 
-1. **Grid density**: Use at least 5 points per dimension for reliable interpolation
+2. **q-mesh convergence**: Test convergence of phonon free energy with q-mesh density. Start with `26 26 26` and increase if needed.
 
-2. **q-mesh convergence**: Test convergence of phonon free energy with q-mesh density
+3. **Polynomial order**: Higher orders capture more detail but may introduce oscillations. Order 2-3 is typically sufficient.
 
-3. **Unstable modes**: If imaginary frequencies occur, those points are flagged (F = 1.234×10⁸) and excluded from fitting
+4. **Unstable modes**: Points with imaginary frequencies are flagged with F = 1.234×10⁸ and excluded from fitting
 
-4. **Temperature range**: Default is 1-2000 K with 100 points. Modify source code for different ranges.
+5. **Memory**: Large grids with fine q-meshes require significant memory. Use MPI for parallel execution:
+   ```bash
+   mpirun -np 8 megafit -rc2 5.0
+   ```
 
-5. **Memory**: Large grids with fine q-meshes require significant memory. Use MPI for parallel execution.
+6. **Debugging**: Use `--verbose` for detailed output during execution
 
 ## Troubleshooting
 
-| Problem | Solution |
-|---------|----------|
-| "NOT DONE" error | Check evalmode in infile.evalpoints matches grid type |
-| Large F values | Imaginary frequencies present - check structural stability |
-| Missing files | Ensure all required input files are present |
-| Memory error | Reduce q-mesh density or use more MPI ranks |
+| Problem | Possible cause | Solution |
+|---------|----------------|----------|
+| "NOT DONE" error | evalmode mismatch | Check evalmode in `infile.evalpoints` matches grid type |
+| Very large F values (10⁸) | Imaginary frequencies | Check structural stability at that grid point |
+| Missing module files | Build order issue | Rebuild TDEP library: `./build_things.sh` |
+| Memory error | Grid too large | Reduce q-mesh or use more MPI ranks |
+| Poor interpolation | Insufficient grid | Add more simulation points |
 
-## Related Programs
+## Related programs
 
-- `fitmultipole`: Fit force constants across parameter grid
-- `extract_forceconstants`: Extract force constants from MD trajectories
-- `phonon_dispersion_relations`: Compute phonon dispersions
-- `thermal_conductivity`: Compute thermal conductivity
+- [`fitmultipole`](../fitmultipole/) - Fit force constants across parameter grid
+- [`extract_forceconstants`](../extract_forceconstants/) - Extract force constants from MD
+- [`phonon_dispersion_relations`](../phonon_dispersion_relations/) - Compute phonon dispersions  
+- [`anharmonic_free_energy`](../anharmonic_free_energy/) - Compute anharmonic corrections
+- [`pack_simulation`](../pack_simulation/) - Package simulation data to HDF5
 
 ## References
 
-1. O. Hellman et al., "Temperature dependent effective potential method for accurate free energy calculations of solids", Phys. Rev. B 87, 104111 (2013)
+1. O. Hellman, P. Steneteg, I. A. Abrikosov, and S. I. Simak, "Temperature dependent effective potential method for accurate free energy calculations of solids", Phys. Rev. B **87**, 104111 (2013)
 
-2. O. Hellman and I. A. Abrikosov, "Temperature-dependent effective third-order interatomic force constants from first principles", Phys. Rev. B 88, 144301 (2013)
+2. O. Hellman and I. A. Abrikosov, "Temperature-dependent effective third-order interatomic force constants from first principles", Phys. Rev. B **88**, 144301 (2013)
+
+3. O. Hellman, I. A. Abrikosov, and S. I. Simak, "Lattice dynamics of anharmonic solids from first principles", Phys. Rev. B **84**, 180301(R) (2011)

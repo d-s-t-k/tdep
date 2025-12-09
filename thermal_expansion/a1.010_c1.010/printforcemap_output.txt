@@ -1,0 +1,130 @@
+ READ STRUCTURE AND SETUP CUTOFFS
+ ... reading unitcell
+ ... min cutoff:       2.07117
+ ... max cutoff:       8.00931
+ --> rc2 cutoff:       8.00931
+ --> rc3 cutoff:      -1.00000
+ --> rc4 cutoff:      -1.00000
+ 
+ DETERMINING SYMMETRY OF INTERACTION TENSORS
+ ... constructed distance tables (0.12546s)
+ ... built singlets
+ ... built pairs
+ ... built prototype tuplets (0.00274s)
+ ... expanded symmetry operations (0.00373s)
+  ... reducing pairs                     100.0% |========================================|  0.00143s
+  ... mapping pairs                      100.0% |========================================|  0.17092s
+ N singlet shells:           3
+          shell:  1   2
+          shell:  2   6
+          shell:  3   2
+ N pair shells:         174
+    shell:           1           2   0.0000000000000000     
+    shell:           2           6   0.0000000000000000     
+    shell:           3           2   0.0000000000000000     
+    shell:           4          12   1.9043189823621243     
+    shell:           5          12   2.0691004795960053     
+    shell:           6          12   2.1274414892544224     
+    shell:           7          12   2.2660813320483570     
+    shell:           8          12   2.7462913608066364     
+    shell:           9          12   2.8222271832237213     
+    shell:          10          12   2.8602998379710161     
+    shell:          11          12   2.8997544172190151     
+    shell:          12           4   3.0374155632554580     
+    shell:          13          12   3.0544972325847826     
+    shell:          14          12   3.0751554573113395     
+    shell:          15          12   3.3144728481377377     
+    shell:          16          12   3.3681014439356849     
+    shell:          17          12   3.3995497795626122     
+    shell:          18          12   3.4643112283130302     
+    shell:          19          12   3.6423228727589523     
+    shell:          20          12   3.7731431512962819     
+     ... and 154 more shells
+ ... determined singlet nullspace
+ ... determined pair nullspace
+ ... determined dielectric tensor nullspace
+ ... determined Born charge nullspace
+ Interactions:
+        firstorder forceconstant:           0           0
+       secondorder forceconstant:         174        1515
+        thirdorder forceconstant:           0           0
+       fourthorder forceconstant:           0           0
+             dielectric constant:           0           0
+              dielectric singlet:           3          26
+                 dielectric pair:           0           0
+   born effective charge singlet:           3           0
+      born effective charge pair:           0           0
+   born effective charge triplet:           0           0
+ 
+ READING SIMULATION FROM FILE
+ ... made space and decided on heuristics
+ ... reading simulation                  100.0% |========================================|  0.03990s
+ ... got displacements
+ ... short summary of simulation:
+                       number of atoms: 380
+              number of configurations: 50
+                         timestep (fs): 2.00000
+               average temperature (K): 1.00000
+                 thermostat set to (K): 300.00000
+                average pressure (GPa): 1.00000
+   average stresstensor xx xy xz (GPa):       1.0000       1.0000       1.0000 
+   average stresstensor yx yy yz (GPa):       1.0000       1.0000       1.0000 
+   average stresstensor zx zy zz (GPa):       1.0000       1.0000       1.0000 
+ ... finished reading simulation (0.05194s)
+ 
+ REPORT GRADE OF OVERDETERMINATION
+     total number of equations:        57000
+      number of FC up 2. order:         1515   --> overdetermination ratio:         37.6
+ 
+ SOLVING FOR INTERACTION TENSORS
+ ... distributed data
+ ... no polar interactions to worry about
+ 
+ GENERATING CONSTRAINTS
+ ... 22 secondorder constraints (0.15799s)
+ ... created 22 constraints (0.15866s)
+ ... creating fc coefficients            100.0% |========================================|  1.26742s
+ ... least squares solver
+ ... solved second order (27.36891s)
+ ... finished solving for forceconstants
+ ... diagnostics from three-fold cross-validation:
+                                   R^2     stddev energy (meV/atom)
+                         input:                 0.0000000
+                  second order:  0.89857        2.3464054
+ 
+ ELASTIC CONSTANTS (short range) (GPa):
+         331.33552         104.58461         108.84744         -39.54445           0.00000           0.00000
+         104.58461         331.33552         108.84744          39.54445           0.00000           0.00000
+         108.84744         108.84744         287.39911           0.00000           0.00000           0.00000
+         -39.54445          39.54445           0.00000         137.51897           0.00000           0.00000
+           0.00000           0.00000           0.00000           0.00000         137.51897         -39.54445
+           0.00000           0.00000           0.00000           0.00000         -39.54445         113.37545
+ ELASTIC CONSTANTS (long range) (GPa):
+           0.00000           0.00000           0.00000           0.00000           0.00000           0.00000
+           0.00000           0.00000           0.00000           0.00000           0.00000           0.00000
+           0.00000           0.00000           0.00000           0.00000           0.00000           0.00000
+           0.00000           0.00000           0.00000           0.00000           0.00000           0.00000
+           0.00000           0.00000           0.00000           0.00000           0.00000           0.00000
+           0.00000           0.00000           0.00000           0.00000           0.00000           0.00000
+ ELASTIC CONSTANTS (total) (GPa):
+         331.33552         104.58461         108.84744         -39.54445           0.00000           0.00000
+         104.58461         331.33552         108.84744          39.54445           0.00000           0.00000
+         108.84744         108.84744         287.39911           0.00000           0.00000           0.00000
+         -39.54445          39.54445           0.00000         137.51897           0.00000           0.00000
+           0.00000           0.00000           0.00000           0.00000         137.51897         -39.54445
+           0.00000           0.00000           0.00000           0.00000         -39.54445         113.37545
+ 
+ ENERGIES (meV/atom):
+                     rms          std          std(res)
+          input:    50.747843     0.000000     -
+   second order:    50.803735     2.382431     2.382431
+ 
+ FORCES (eV/A):
+                     rms          rms(res)     std(res)     R^2(res)     normalized std(res)
+          input:     1.334306     1.334306     0.770362     -            -
+   second order:     1.269945     0.409404     0.236369     0.905856     0.306829             <-- anharmonicity measure
+ 
+ BASELINE ENERGY (eV/atom):
+             U0:                 -0.048116
+ 
+ Done in 30.11437s

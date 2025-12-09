@@ -1,7 +1,7 @@
 #include "precompilerdefinitions"
 module type_gridsim
 use konstanter, only: r8,flyt,lo_huge,lo_hugeint,lo_exitcode_symmetry,lo_exitcode_blaslapack,lo_status,lo_exitcode_param,&
-                      lo_exitcode_io,lo_tol,lo_sqtol,lo_volume_A_to_bohr,lo_volume_bohr_to_A,lo_Hartree_to_eV,lo_kb_Hartree,&
+                      lo_exitcode_io,lo_tol,lo_sqtol,lo_volume_A_to_bohr,lo_volume_bohr_to_A,lo_Hartree_to_eV,lo_eV_to_Hartree,lo_kb_Hartree,&
                       lo_pi,lo_A_to_bohr,lo_bohr_to_A
 use gottochblandat, only: walltime,tochar,lo_progressbar_init,lo_progressbar,open_file,&
                    lo_clean_fractional_coordinates,lo_determ,lo_unflatten_2tensor,lo_flattentensor,lo_chop,&
@@ -240,6 +240,10 @@ type lo_gridsim
     integer :: ndim=-lo_hugeint
     !> x,y,z-values for the simulation grid.
     real(r8), dimension(:,:), allocatable :: grid_coordinates
+    !> static 0K DFT energy per atom (eV/atom) for each grid point
+    real(r8), dimension(:), allocatable :: static_energy
+    !> do we have static energies from infile.simulations?
+    logical :: have_static_energy = .false.
     !> polynomial coefficients
     type(lo_gridsim_coeff) :: pair
     type(lo_gridsim_coeff) :: triplet
@@ -413,10 +417,49 @@ subroutine initialize_gridsim(gs,filename,map,order,temperaturescale,distancesca
             endif
 
             ! Ok got the dimensions of the grid, and perhaps an equation of state. Now read in the grid coordinates.
+            ! The format can be either:
+            !   coord1 coord2 ... path_to_hdf5
+            ! or with static energy:
+            !   coord1 coord2 ... static_energy_eV_atom path_to_hdf5
             lo_allocate(gs%grid_coordinates(gs%ndim,gs%nsim))
+            lo_allocate(gs%static_energy(gs%nsim))
             gs%grid_coordinates=0.0_r8
-            do i=1,gs%nsim
-                read(u,*) gs%grid_coordinates(:,i),dum
+            gs%static_energy=0.0_r8
+            gs%have_static_energy=.false.
+            
+            ! Read first line to detect format (check if we have static energy column)
+            detectformat: block
+                character(len=5000) :: line
+                real(r8) :: testval
+                integer :: nfields, ios
+                
+                read(u,'(A)') line
+                ! Count fields by trying to read ndim+2 values (coords + energy + path)
+                ! If successful, we have static energy
+                read(line,*,iostat=ios) gs%grid_coordinates(:,1), testval, dum
+                if ( ios .eq. 0 ) then
+                    ! Successfully read ndim coords + 1 real + 1 string = static energy format
+                    gs%have_static_energy = .true.
+                    gs%static_energy(1) = testval * lo_eV_to_Hartree  ! Convert eV/atom to Hartree/atom
+                    if ( verbosity .gt. 0 ) write(*,*) '... Detected static energy column in infile.simulations'
+                else
+                    ! Try reading without static energy: ndim coords + path
+                    read(line,*,iostat=ios) gs%grid_coordinates(:,1), dum
+                    if ( ios .ne. 0 ) then
+                        call lo_stop_gracefully(['Could not parse line in infile.simulations'],lo_exitcode_io,__FILE__,__LINE__,mw%comm)
+                    endif
+                    gs%have_static_energy = .false.
+                endif
+            end block detectformat
+            
+            ! Read remaining lines
+            do i=2,gs%nsim
+                if ( gs%have_static_energy ) then
+                    read(u,*) gs%grid_coordinates(:,i), gs%static_energy(i), dum
+                    gs%static_energy(i) = gs%static_energy(i) * lo_eV_to_Hartree
+                else
+                    read(u,*) gs%grid_coordinates(:,i), dum
+                endif
             enddo
         close(u)
 

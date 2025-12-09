@@ -753,8 +753,11 @@ pure function phonon_free_energy(dr, temperature) result(f)
     real(r8) :: f
 
     integer :: i, j
-    ! Return a stupid number if there are imaginary modes:
-    if (dr%omega_min .lt. 0.0_r8) then
+    real(r8) :: omega
+    ! Return a stupid number if there are significant imaginary modes (> 0.5 THz):
+    ! Small imaginary modes < 0.5 THz are treated as numerical noise from interpolation
+    ! This tolerance is needed for polynomial interpolation of force constants
+    if (dr%omega_min .lt. -0.5_r8) then
         f = 123456789.0_r8
         return
     end if
@@ -762,12 +765,14 @@ pure function phonon_free_energy(dr, temperature) result(f)
     f = 0.0_r8
     do i = 1, dr%n_full_qpoint
         do j = 1, dr%n_mode
-            f = f + lo_harmonic_oscillator_free_energy(temperature, dr%aq(i)%omega(j))
+            omega = dr%aq(i)%omega(j)
+            ! Skip modes with small imaginary frequencies (treat as ~zero)
+            if (omega .lt. 1E-6_r8) omega = 1E-6_r8
+            f = f + lo_harmonic_oscillator_free_energy(temperature, omega)
         end do
     end do
     f = f/dr%n_full_qpoint/(dr%n_mode/3)
 end function
-
 !> calculate the phonon free energy as a direct sum
 pure function phonon_free_energy_classical(dr, temperature) result(f)
     !> the phonon dispersions

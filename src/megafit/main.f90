@@ -263,10 +263,11 @@ endif
 ! Now that we have everything it's reasonable to do something with the interpolation.
 ! Perhaps calculate free energy on a grid?
 if ( opts%evalenergy ) then
-if ( evalmode .eq. 1 .or. evalmode .eq. 3 ) then
+if ( evalmode .eq. 1 .or. evalmode .eq. 3 .or. evalmode .eq. 4 .or. evalmode .eq. 5 ) then
 griden: block
     type(lo_gridenergy) :: ge
-    call ge%generate(gs,map,opts%qgrid_harm,opts%qgrid_anharm,opts%quasiharmonic,opts%dumpfullgrid,mw,mem)
+    call ge%generate(gs,map,opts%qgrid_harm,opts%qgrid_anharm,opts%quasiharmonic,opts%dumpfullgrid,&
+        opts%dumpforceconstants,opts%trangemin,opts%trangemax,opts%trangenpts,opts%order,mw,mem)
     call tmr%tock('evaluated fine mesh')
 end block griden
 endif
@@ -367,13 +368,15 @@ subroutine check_input(fn_sim,fn_eval,evalmode,mw)
     real(r8), dimension(:), allocatable :: mincoord,maxcoord
     real(r8), dimension(4) :: eos4p
     real(r8), dimension(9) :: eos9p
-    real(r8) :: pressurespacing
+    real(r8) :: pressurespacing, static_energy_dummy
     character(len=3), dimension(:), allocatable :: varnames
     character(len=3) :: cspacing
     character(len=5) :: eosname
     character(len=2000) :: simfn
+    character(len=5000) :: linebuf
     integer, dimension(:), allocatable :: pts_per_dim,order_per_dim
-    integer :: u,ndim,nsim,i,j,l,ctr,npts
+    integer :: u,ndim,nsim,i,j,l,ctr,npts,ios
+    logical :: have_static_energy
 
     call h5open_f(lo_status)
     if ( lo_status .ne. 0 ) call lo_stop_gracefully(['Could initialize hdf5 library'],lo_exitcode_io,communicator=mw%comm)
@@ -392,8 +395,8 @@ subroutine check_input(fn_sim,fn_eval,evalmode,mw)
         ctr=ctr+1; read(u,*,iostat=lo_status) order_per_dim
         if ( lo_status .ne. 0 ) call lo_stop_gracefully(['Could not read polynomial orders from "'//trim(fn_sim)//'"'],lo_exitcode_io,communicator=mw%comm)
         do i=1,ndim
-            if ( order_per_dim(i) .gt. 4 ) then
-                call lo_stop_gracefully(['Polynomials of order 5 or higher is highly unreliable.'],lo_exitcode_io,communicator=mw%comm)
+            if ( order_per_dim(i) .gt. 6 ) then
+                call lo_stop_gracefully(['Polynomials of order 7 or higher is not supported.'],lo_exitcode_io,communicator=mw%comm)
             elseif ( order_per_dim(i) .lt. 0 ) then
                 call lo_stop_gracefully(['Polynomials orders need to be positiv.'],lo_exitcode_io,communicator=mw%comm)
             endif
@@ -443,11 +446,40 @@ subroutine check_input(fn_sim,fn_eval,evalmode,mw)
         ! now go over each simulation, and make sure they exist
         lo_allocate(gridcoord(ndim,nsim))
         gridcoord=0.0_r8
-        do i=1,nsim
-            ctr=ctr+1; read(u,*,iostat=lo_status) gridcoord(:,i),simfn
-
-
-            if ( lo_status .ne. 0 ) call lo_stop_gracefully(['Could not read grid coordinates or simulation filename at line '//tochar(ctr)//' from "'//trim(fn_sim)//'"'],lo_exitcode_io,communicator=mw%comm)
+        have_static_energy=.false.
+        
+        ! Detect format from first data line
+        ctr=ctr+1
+        read(u,'(A)') linebuf
+        ! Try reading with static energy: ndim coords + 1 energy + 1 path
+        read(linebuf,*,iostat=ios) gridcoord(:,1), static_energy_dummy, simfn
+        if ( ios .eq. 0 ) then
+            have_static_energy = .true.
+        else
+            ! Try without static energy: ndim coords + 1 path
+            read(linebuf,*,iostat=ios) gridcoord(:,1), simfn
+            if ( ios .ne. 0 ) then
+                call lo_stop_gracefully(['Could not read grid coordinates or simulation filename at line '//tochar(ctr)//' from "'//trim(fn_sim)//'"'],lo_exitcode_io,communicator=mw%comm)
+            endif
+            have_static_energy = .false.
+        endif
+        
+        ! Check first file exists
+        do j=1,ndim
+            if ( trim(lo_lowercase(varnames(j))) .eq. 'v' ) gridcoord(j,1)=gridcoord(j,1)*lo_volume_A_to_Bohr
+        enddo
+        if ( lo_does_file_exist(trim(simfn)) .eqv. .false. ) then
+            call lo_stop_gracefully(['Simulation file "'//trim(simfn)//'" does not exist.'],lo_exitcode_io,communicator=mw%comm)
+        endif
+        
+        ! Read remaining simulations
+        do i=2,nsim
+            ctr=ctr+1
+            if ( have_static_energy ) then
+                read(u,*,iostat=lo_status) gridcoord(:,i), static_energy_dummy, simfn
+            else
+                read(u,*,iostat=lo_status) gridcoord(:,i), simfn
+            endif
             ! convert to atomic units
             do j=1,ndim
                 if ( trim(lo_lowercase(varnames(j))) .eq. 'v' ) gridcoord(j,i)=gridcoord(j,i)*lo_volume_A_to_Bohr

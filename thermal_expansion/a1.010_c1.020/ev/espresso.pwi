@@ -1,0 +1,53 @@
+&CONTROL
+   calculation      = 'scf'
+   verbosity        = 'medium'
+   tstress          = .true.
+   tprnfor          = .true.
+   disk_io          = 'none'
+   pseudo_dir       = '/home/qhossain/SSSP_1.3.0_PBEsol_efficiency'
+/
+&SYSTEM
+   ecutwfc          = 60
+   ecutrho          = 400
+   nosym            = .false.
+   occupations      = 'fixed'
+   ntyp             = 3
+   nat              = 10
+   ibrav            = 0
+/
+&ELECTRONS
+   conv_thr         = 1e-12
+/
+&IONS
+/
+&CELL
+/
+&FCP
+/
+&RISM
+/
+ATOMIC_SPECIES
+Li 6.94 li_pbesol_v1.4.uspp.F.UPF
+O 15.999 O.pbesol-n-kjpaw_psl.0.1.UPF
+Nb 92.90637 Nb.pbesol-spn-kjpaw_psl.0.3.0.UPF
+
+K_POINTS automatic
+6 6 6  0 0 0
+
+CELL_PARAMETERS angstrom
+2.59090636427653 1.49586048686015 4.69795351253958
+-2.59090636427653 1.49586048686015 4.69795351253958
+0.00000000000000 -2.99172097372037 4.69795351253958
+
+ATOMIC_POSITIONS angstrom
+Li 0.0000000000 -0.0000000000 11.0415383152  
+Li -0.0000000000 -0.0000000000 3.9946080464  
+O -1.6607217332 -0.2118062442 7.9785910692  
+O 1.0137904547 -1.3323240875 7.9785910692  
+O 0.6469312785 1.5441303316 7.9785910692  
+O 1.5771159096 0.1635363994 5.6296143130  
+O -0.9301846311 1.2840542427 5.6296143130  
+O -0.6469312785 -1.4475906421 5.6296143130  
+Nb -0.0000000000 -0.0000000000 7.0620970311  
+Nb -0.0000000000 -0.0000000000 0.0151667623  
+

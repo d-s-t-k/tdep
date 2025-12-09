@@ -1,0 +1,27 @@
+ PACKING SIMULATION TO HDF5
+ ... read structures
+ 
+ READING SIMULATION FROM FILE
+ ... made space and decided on heuristics
+ ... reading simulation                  100.0% |========================================|  0.03235s
+ ... got displacements
+ ... short summary of simulation:
+                       number of atoms: 380
+              number of configurations: 50
+                         timestep (fs): 2.00000
+               average temperature (K): 1.00000
+                 thermostat set to (K): 300.00000
+                average pressure (GPa): 1.00000
+   average stresstensor xx xy xz (GPa):       1.0000       1.0000       1.0000 
+   average stresstensor yx yy yz (GPa):       1.0000       1.0000       1.0000 
+   average stresstensor zx zy zz (GPa):       1.0000       1.0000       1.0000 
+ ... finished reading simulation (0.03464s)
+ 
+ Writing simulation to "outfile.sim.hdf5"
+ ... wrote positions
+ ... wrote displacements
+ ... wrote forces
+ ... wrote energies and metadata
+ wrote simulation (0.05786s)
+ 
+ All done!
